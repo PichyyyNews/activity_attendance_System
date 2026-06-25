@@ -10,7 +10,6 @@
 > [!WARNING]
 > เพื่อให้การพัฒนาระบบตรงตามความต้องการมากที่สุด รบกวนยืนยันข้อมูลต่อไปนี้:
 > 1. **Authentication**: ระบบ Admin จำเป็นต้องมีระบบ Login (Username/Password) หรือไม่?
-> 2. **Google Sheets API**: ในการเชื่อมต่อ Google Sheets จะต้องใช้ Service Account Key (`credentials.json`) ผู้ใช้งานสะดวกที่จะสร้างและนำมาใส่ในระบบเองใช่หรือไม่?
 
 ## Proposed Architecture
 
@@ -34,22 +33,24 @@
 - สร้างโฟลเดอร์สำหรับ `frontend` (React TypeScript + Vite + Tailwind CSS)
 - สร้างโฟลเดอร์สำหรับ `backend` (Node.js + Express TypeScript)
 - สร้างไฟล์ `docker-compose.yml`, `.env`, และ `.env.example`
-- ตั้งค่าฐานข้อมูล SQLite (สร้างตาราง `users`, `sessions`, `attendances`)
-- ตั้งค่า Google Sheets API Client บน Backend
+- ตั้งค่าฐานข้อมูล SQLite (สร้างตาราง `users`, `sessions`, `attendances`, `settings`)
 
-### 2. Admin Dashboard (CRUD & QR Generation)
+### 2. Admin Dashboard (CRUD & Settings)
 - **UI/UX**: หน้า Dashboard ที่ดูพรีเมียม สบายตา (Responsive)
 - **Features**:
-  - หน้าสร้างคาบกิจกรรม (Session) ระบุสัปดาห์และรายละเอียด
-  - หน้ารายการคาบกิจกรรม พร้อมปุ่มแสดง QR Code ของแต่ละคาบ
-  - หน้าดูรายการนักศึกษาที่เช็กชื่อแล้ว (ดึงจาก SQLite)
-  - ระบบลบ/แก้ไข คาบกิจกรรมและรายชื่อนักศึกษา
+  - **หน้า Dashboard หลัก**: สรุปภาพรวม (จำนวนนักศึกษา, จำนวนคาบเรียน, สถิติการเข้าเรียนเบื้องต้น)
+  - **หน้าจัดการคาบเรียน**: สร้างคาบกิจกรรม ระบุสัปดาห์ และปุ่มแสดง QR Code
+  - **หน้ารายการนักศึกษา**: ดูรายชื่อนักศึกษาที่เช็กชื่อแล้ว และระบบค้นหา/ลบ/แก้ไขข้อมูล
+  - **หน้า Settings (ตั้งค่าระบบ)**:
+    - ช่องสำหรับนำโค้ดจากไฟล์ **Google Sheets API Credentials (JSON)** มาวาง (หรือใช้วิธีอัปโหลดไฟล์)
+    - ช่องสำหรับกรอก **Spreadsheet ID**
+    - ระบบบันทึกการตั้งค่าลง SQLite เพื่อให้ Backend ดึงไปใช้เชื่อมต่อ Google Sheets อัตโนมัติ โดยที่ Admin ไม่ต้องเข้าไปแก้ไขไฟล์ใน Server ด้วยตัวเอง
 
 ### 3. User Facing (Scan & Submit Form)
 - **UI/UX**: หน้าเว็บสำหรับสแกน QR Code (Mobile-first 100%)
 - **Features**:
   - แบบฟอร์มกรอกข้อมูล: ชื่อ, นามสกุล, รหัสนักศึกษา, สาขา
-  - เมื่อกด Submit ข้อมูลจะถูกส่งไปที่ Backend เพื่อบันทึกลง SQLite และ Google Sheets
+  - เมื่อกด Submit ข้อมูลจะถูกส่งไปที่ Backend เพื่อบันทึกลง SQLite และซิงค์ไปยัง Google Sheets
   - แจ้งเตือนสถานะความสำเร็จอย่างสวยงาม (Micro-animations)
 
 ### 4. User Dashboard (Attendance Checker)
@@ -65,6 +66,7 @@
 
 ### Manual Verification
 - รัน `docker-compose up` เพื่อจำลองการใช้งานบน Local
+- เข้าหน้า Admin Dashboard ไปที่เมนู Settings เพื่อทดลองวางข้อมูล Google Sheets API และ Spreadsheet ID
 - สร้างคาบเรียนทดสอบจากฝั่ง Admin และเปิดหน้า QR Code
 - ใช้โทรศัพท์มือถือแสกน QR Code และทดลองกรอกข้อมูล (ทดสอบ Responsive UI)
 - ตรวจสอบว่าข้อมูลเข้าไปยัง SQLite และ Google Sheets อย่างถูกต้อง
