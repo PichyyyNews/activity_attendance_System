@@ -118,7 +118,12 @@ export default function AdminSessions() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const qrUrl = (id: number) => `${window.location.origin}/scan/${id}`;
+  const qrUrl = (id: number) => {
+    const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+    // Strip trailing slash if present
+    const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    return `${cleanBaseUrl}/scan/${id}`;
+  };
 
   const handleToggleActive = async (id: number, currentStatus: number) => {
     try {
