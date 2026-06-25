@@ -1,0 +1,412 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import axios from 'axios';
+import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+
+export default function UserScanForm() {
+  const { sessionId } = useParams();
+  const [majors, setMajors] = useState<{ id: number; class_year: string; major_code: string; room: string }[]>([]);
+  
+  // Form states
+  const [prefix, setPrefix] = useState(() => localStorage.getItem('attendance_prefix') || '');
+  const [firstName, setFirstName] = useState(() => localStorage.getItem('attendance_firstName') || '');
+  const [lastName, setLastName] = useState(() => localStorage.getItem('attendance_lastName') || '');
+  const [studentId, setStudentId] = useState(() => localStorage.getItem('attendance_studentId') || '');
+  const [selectedYear, setSelectedYear] = useState(() => localStorage.getItem('attendance_selectedYear') || '');
+  const [selectedMajorCode, setSelectedMajorCode] = useState(() => localStorage.getItem('attendance_selectedMajorCode') || '');
+  const [selectedRoom, setSelectedRoom] = useState(() => localStorage.getItem('attendance_selectedRoom') || '');
+  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('attendance_remember') !== 'false');
+  const [error, setError] = useState('');
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  // Session status states
+  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null } | null>(null);
+  const [isSessionClosed, setIsSessionClosed] = useState(false);
+  const [sessionClosedReason, setSessionClosedReason] = useState('');
+  const [loadingSession, setLoadingSession] = useState(true);
+
+  useEffect(() => {
+    // Fetch majors from backend
+    axios.get('/api/majors')
+      .then(res => setMajors(res.data || []))
+      .catch(err => console.error('Error fetching majors:', err));
+
+    // Fetch session details and accurate server time if sessionId exists
+    if (sessionId) {
+      setLoadingSession(true);
+      Promise.all([
+        axios.get(`/api/sessions/${sessionId}`),
+        axios.get('/api/time')
+      ])
+        .then(([sessionRes, timeRes]) => {
+          const session = sessionRes.data;
+          setSessionInfo(session);
+          
+          const nowServer = new Date(timeRes.data.datetime);
+          const isExpired = session.close_at && nowServer > new Date(session.close_at);
+          if (session.is_active === 0) {
+            setIsSessionClosed(true);
+            setSessionClosedReason('ผู้ดูแลระบบได้ปิดระบบการสแกนเช็กชื่อสำหรับกิจกรรมสัปดาห์นี้แล้ว');
+          } else if (isExpired) {
+            setIsSessionClosed(true);
+            setSessionClosedReason('หมดเวลาการเช็กชื่อเข้าร่วมกิจกรรมในสัปดาห์นี้แล้ว (ระบบปิดรับอัตโนมัติ)');
+          }
+          setLoadingSession(false);
+        })
+        .catch(err => {
+          console.error('Error fetching session details:', err);
+          setError('ไม่พบคลาสกิจกรรมที่ระบุ หรือเกิดข้อผิดพลาดในการโหลดข้อมูล');
+          setLoadingSession(false);
+        });
+    } else {
+      setLoadingSession(false);
+    }
+  }, [sessionId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!sessionId) {
+      setError('ไม่พบคลาสกิจกรรมที่ระบุ');
+      return;
+    }
+
+    if (isSessionClosed) {
+      setError('คาบกิจกรรมนี้ปิดรับการลงชื่อเข้าเรียนแล้ว');
+      return;
+    }
+
+    if (!/^\d{11}$/.test(studentId)) {
+      setError('รหัสนักศึกษาต้องเป็นตัวเลข 11 หลักเท่านั้น');
+      return;
+    }
+
+    if (!selectedYear || !selectedMajorCode || !selectedRoom) {
+      setError('กรุณาเลือกข้อมูลชั้นปี สาขาวิชา และห้องเรียนให้ครบถ้วน');
+      return;
+    }
+
+    try {
+      await axios.post('/api/attendances', {
+        session_id: parseInt(sessionId),
+        prefix: prefix,
+        first_name: firstName,
+        last_name: lastName,
+        student_id: studentId,
+        class_year: selectedYear,
+        major_code: selectedMajorCode,
+        room: selectedRoom
+      });
+
+      if (rememberMe) {
+        localStorage.setItem('attendance_prefix', prefix);
+        localStorage.setItem('attendance_firstName', firstName);
+        localStorage.setItem('attendance_lastName', lastName);
+        localStorage.setItem('attendance_studentId', studentId);
+        localStorage.setItem('attendance_selectedYear', selectedYear);
+        localStorage.setItem('attendance_selectedMajorCode', selectedMajorCode);
+        localStorage.setItem('attendance_selectedRoom', selectedRoom);
+        localStorage.setItem('attendance_remember', 'true');
+      } else {
+        localStorage.removeItem('attendance_prefix');
+        localStorage.removeItem('attendance_firstName');
+        localStorage.removeItem('attendance_lastName');
+        localStorage.removeItem('attendance_studentId');
+        localStorage.removeItem('attendance_selectedYear');
+        localStorage.removeItem('attendance_selectedMajorCode');
+        localStorage.removeItem('attendance_selectedRoom');
+        localStorage.setItem('attendance_remember', 'false');
+      }
+
+      setIsSuccess(true);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการบันทึกการเช็กชื่อ');
+    }
+  };
+
+  const years = Array.from(new Set(majors.map(m => m.class_year))).sort();
+  const majorCodes = Array.from(
+    new Set(
+      majors
+        .filter(m => m.class_year === selectedYear)
+        .map(m => m.major_code)
+    )
+  ).sort();
+  const rooms = Array.from(
+    new Set(
+      majors
+        .filter(m => m.class_year === selectedYear && m.major_code === selectedMajorCode)
+        .map(m => m.room)
+    )
+  ).sort();
+
+  return (
+    <div className="min-h-screen bg-canvas flex flex-col justify-between py-12 px-6">
+      {/* Top Brand Logo */}
+      <div className="flex justify-center">
+        <div className="flex items-center space-x-2">
+          <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
+            <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
+          </div>
+          <span className="font-extrabold text-base text-ink tracking-tight">attendance.io</span>
+        </div>
+      </div>
+
+      {/* Success View */}
+      {isSuccess ? (
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] text-center space-y-6 animate-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 bg-success/15 text-success rounded-full flex items-center justify-center mx-auto border border-success/30">
+            <CheckCircle2 size={32} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-ink tracking-tight">เช็กชื่อสำเร็จแล้ว!</h1>
+            <p className="text-muted text-sm">ระบบได้บันทึกข้อมูลการเข้าเรียนกิจกรรมสัปดาห์ที่ {sessionId} เรียบร้อยแล้ว</p>
+          </div>
+
+          <div className="bg-surface-soft border border-hairline rounded-md p-4 text-left text-sm space-y-2.5">
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">ชื่อ-นามสกุล</span>
+              <span className="font-semibold text-ink">{prefix}{firstName} {lastName}</span>
+            </div>
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">รหัสนักศึกษา</span>
+              <span className="font-mono font-semibold text-ink">{studentId}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">สาขาวิชา / ห้องเรียน</span>
+              <span className="font-semibold text-ink">{selectedYear}{selectedMajorCode}{selectedRoom}</span>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Link 
+              to={`/?id=${studentId}`}
+              className="w-full h-11 bg-primary hover:bg-primary-active text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all"
+            >
+              <span>ตรวจสอบสถิติการเช็กชื่อของฉัน</span>
+              <ArrowRight size={15} />
+            </Link>
+          </div>
+        </div>
+      ) : loadingSession ? (
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-12 text-center space-y-4 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-sm text-muted font-semibold">กำลังโหลดข้อมูลคาบกิจกรรม...</p>
+        </div>
+      ) : (
+        /* Form View */
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-8">
+          <div className="text-center space-y-3">
+            <div className="w-12 h-12 bg-surface-soft border border-hairline text-ink rounded-full flex items-center justify-center mx-auto">
+              <Sparkles size={20} className="text-primary animate-pulse" />
+            </div>
+            <div className="space-y-1">
+              <span className="inline-block text-[11px] bg-primary text-white font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
+                สัปดาห์ที่ {sessionId || 'พิเศษ'} {sessionInfo ? `(${sessionInfo.title})` : ''}
+              </span>
+              <h1 className="text-2xl font-bold text-ink tracking-tight mt-2">เช็กชื่อเข้าร่วมกิจกรรม</h1>
+              {sessionInfo && sessionInfo.close_at && !isSessionClosed && (
+                <p className="text-error text-xs font-semibold mt-1">
+                  ⏰ ปิดรับเวลา {new Date(sessionInfo.close_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                </p>
+              )}
+              <p className="text-muted text-xs mt-1">กรุณากรอกข้อมูลเพื่อใช้เป็นหลักฐานยืนยันการเช็กชื่อ</p>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center space-x-2 p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md">
+              <ShieldAlert size={16} className="flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {isSessionClosed && (
+            <div className="flex items-start space-x-2.5 p-4 bg-error/15 border border-error/30 text-error text-xs font-bold rounded-md animate-in fade-in duration-200">
+              <ShieldAlert size={18} className="flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-extrabold text-sm">การเช็กชื่อเสร็จสิ้น/ปิดระบบแล้ว</p>
+                <p className="font-semibold opacity-90">{sessionClosedReason}</p>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              <div className="space-y-1.5 sm:col-span-3">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">คำนำหน้า</label>
+                <select
+                  required
+                  value={prefix}
+                  onChange={e => setPrefix(e.target.value)}
+                  disabled={isSessionClosed}
+                  className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+                >
+                  <option value="" disabled>-- เลือก --</option>
+                  <option value="นาย">นาย</option>
+                  <option value="นางสาว">นางสาว</option>
+                </select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-4">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ชื่อจริง</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={firstName}
+                  onChange={e => setFirstName(e.target.value)}
+                  disabled={isSessionClosed}
+                  className="w-full h-11 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:bg-surface-soft disabled:text-muted"
+                  placeholder="เช่น ณัฐพัทธ์"
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-5">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">นามสกุล</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={lastName}
+                  onChange={e => setLastName(e.target.value)}
+                  disabled={isSessionClosed}
+                  className="w-full h-11 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:bg-surface-soft disabled:text-muted"
+                  placeholder="เช่น นิวส์ก้า"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
+                {studentId.length > 0 && (
+                  <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
+                    {studentId.length === 11 
+                      ? '✓ ครบ 11 หลักแล้ว' 
+                      : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
+                    }
+                  </span>
+                )}
+              </div>
+              <input 
+                required 
+                type="text" 
+                inputMode="numeric"
+                pattern="[0-9]{11}" 
+                maxLength={11}
+                title="กรุณากรอกรหัสนักศึกษา 11 หลักให้ถูกต้อง" 
+                value={studentId}
+                disabled={isSessionClosed}
+                onChange={e => {
+                  const val = e.target.value.replace(/[^0-9]/g, '');
+                  if (val.length <= 11) {
+                    setStudentId(val);
+                  }
+                }}
+                className={`w-full h-11 border rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
+                  studentId.length > 0 && studentId.length !== 11
+                    ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
+                    : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
+                } disabled:bg-surface-soft disabled:text-muted`}
+                placeholder="เช่น 64012345678" 
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ห้องเรียน / สาขาวิชา</label>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <select
+                    required
+                    value={selectedYear}
+                    onChange={e => {
+                      setSelectedYear(e.target.value);
+                      setSelectedMajorCode('');
+                      setSelectedRoom('');
+                    }}
+                    disabled={isSessionClosed}
+                    className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+                  >
+                    <option value="" disabled>ชั้นปี</option>
+                    {years.map(y => (
+                      <option key={y} value={y}>ปี {y}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <select
+                    required
+                    disabled={!selectedYear || isSessionClosed}
+                    value={selectedMajorCode}
+                    onChange={e => {
+                      setSelectedMajorCode(e.target.value);
+                      setSelectedRoom('');
+                    }}
+                    className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+                  >
+                    <option value="" disabled>สาขา</option>
+                    {majorCodes.map(code => (
+                      <option key={code} value={code}>{code}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <select
+                    required
+                    disabled={!selectedMajorCode || isSessionClosed}
+                    value={selectedRoom}
+                    onChange={e => setSelectedRoom(e.target.value)}
+                    className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+                  >
+                    <option value="" disabled>ห้อง</option>
+                    {rooms.map(r => (
+                      <option key={r} value={r}>ห้อง {r}</option>
+                    ))}
+                  </select>
+                 </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 py-1">
+              <input
+                type="checkbox"
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={e => setRememberMe(e.target.checked)}
+                disabled={isSessionClosed}
+                className="w-4 h-4 border border-hairline rounded text-primary focus:ring-primary cursor-pointer accent-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <label htmlFor="rememberMe" className="text-xs font-semibold text-muted hover:text-ink cursor-pointer select-none transition-colors">
+                บันทึกข้อมูลและสาขาวิชาไว้บนเครื่องนี้ เพื่อความสะดวกรวดเร็วในครั้งถัดไป
+              </label>
+            </div>
+
+            <button 
+              type="submit" 
+              disabled={isSessionClosed}
+              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-2 cursor-pointer"
+            >
+              <CheckSquare size={16} />
+              <span>{isSessionClosed ? 'ปิดรับเช็กชื่อแล้ว' : 'ยืนยันการเช็กชื่อกิจกรรม'}</span>
+            </button>
+          </form>
+
+          <div className="border-t border-hairline pt-5 text-center">
+            <Link 
+              to="/" 
+              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-muted hover:text-ink transition-colors"
+            >
+              <span>ต้องการตรวจสอบประวัติการเข้าร่วมกิจกรรม?</span>
+              <ArrowRight size={13} />
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Footer Branding */}
+      <div className="text-center text-[11px] text-muted-soft mt-8">
+        © {new Date().getFullYear()} attendance.io ขับเคลื่อนระบบด้วยฐานข้อมูล SQLite และ Google Sheets API
+      </div>
+    </div>
+  );
+}
