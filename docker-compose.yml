@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: attendance-backend
+    restart: always
+    environment:
+      - PORT=${BACKEND_PORT}
+    env_file:
+      - .env
+    volumes:
+      - sqlite-data:/app/backend/data
+      - ./${GOOGLE_CREDENTIALS_FILE}:/app/google-credentials.json:ro
+    expose:
+      - "${BACKEND_PORT}"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: attendance-frontend
+    restart: always
+    environment:
+      - DOMAIN=${DOMAIN}
+      - BACKEND_PORT=${BACKEND_PORT}
+    env_file:
+      - .env
+    ports:
+      - "${PORT}:80"
+    depends_on:
+      - backend
+
+volumes:
+  sqlite-data:

@@ -1,87 +1,32 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Link, Outlet } from 'react-router-dom';
 import axios from 'axios';
-import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck } from 'lucide-react';
+import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users } from 'lucide-react';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminSettings from './pages/admin/Settings';
 import AdminSessions from './pages/admin/Sessions';
 import AdminAttendanceList from './pages/admin/AttendanceList';
+import AdminStudents from './pages/admin/Students';
 import UserScanForm from './pages/UserScanForm';
 import UserDashboard from './pages/UserDashboard';
 
 function Footer() {
   return (
     <footer className="bg-surface-dark text-on-dark-soft border-t border-surface-dark-elevated">
-      <div className="max-w-7xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
-          {/* Column 1 */}
-          <div className="space-y-4">
-            <div className="flex items-center space-x-2 text-white font-extrabold text-lg tracking-tight">
-              <div className="w-5 h-5 bg-white rounded-full flex items-center justify-center">
-                <div className="w-2.5 h-2.5 bg-surface-dark rounded-full"></div>
-              </div>
-              <span>attendance.io</span>
-            </div>
-            <p className="text-sm text-[#a1a1aa] leading-relaxed max-w-xs">
-              ระบบเช็กชื่อและบันทึกประวัติการเข้าร่วมกิจกรรมแบบเสถียรสูง เชื่อมต่อฐานข้อมูล SQLite และ Google Sheets
-            </p>
+      <div className="max-w-7xl mx-auto px-6 py-6 flex flex-col sm:flex-row justify-between items-center text-xs text-[#898989] space-y-3 sm:space-y-0">
+        <div className="flex items-center space-x-2 text-white font-extrabold text-sm tracking-tight">
+          <div className="w-4 h-4 bg-white rounded-full flex items-center justify-center">
+            <div className="w-2 h-2 bg-surface-dark rounded-full"></div>
           </div>
-          
-          {/* Column 2 */}
-          <div>
-            <h3 className="text-white text-sm font-semibold tracking-wider uppercase mb-4">เมนูผู้ดูแลระบบ</h3>
-            <ul className="space-y-2.5 text-sm">
-              <li>
-                <Link to="/admin" className="hover:text-white transition-colors">แดชบอร์ดภาพรวม</Link>
-              </li>
-              <li>
-                <Link to="/admin/sessions" className="hover:text-white transition-colors">จัดการคาบกิจกรรม</Link>
-              </li>
-              <li>
-                <Link to="/admin/settings" className="hover:text-white transition-colors">ตั้งค่า Google Sheets</Link>
-              </li>
-            </ul>
-          </div>
-          
-          {/* Column 3 */}
-          <div>
-            <h3 className="text-white text-sm font-semibold tracking-wider uppercase mb-4">บริการอื่นๆ</h3>
-            <ul className="space-y-2.5 text-sm">
-              <li>
-                <Link to="/" className="hover:text-white transition-colors">ระบบเช็กประวัตินักศึกษา</Link>
-              </li>
-              <li>
-                <a href="#" className="hover:text-white transition-colors">ศูนย์ช่วยเหลือ</a>
-              </li>
-              <li>
-                <a href="#" className="hover:text-white transition-colors">เอกสารอ้างอิง API</a>
-              </li>
-            </ul>
-          </div>
-
-          {/* Column 4 */}
-          <div>
-            <h3 className="text-white text-sm font-semibold tracking-wider uppercase mb-4">สถานะเซิร์ฟเวอร์</h3>
-            <ul className="space-y-2.5 text-sm text-[#a1a1aa]">
-              <li className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-success"></span>
-                <span>SQLite DB: เชื่อมต่อแล้ว</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-success"></span>
-                <span>Google Sheets API: ปกติ</span>
-              </li>
-              <li className="text-xs text-[#6b7280]">เวอร์ชัน 1.0.0 (ใช้งานจริง)</li>
-            </ul>
-          </div>
+          <span>attendance.io</span>
         </div>
-
-        <div className="border-t border-[#1a1a1a] mt-12 pt-8 flex flex-col sm:flex-row justify-between items-center text-xs text-[#898989] space-y-4 sm:space-y-0">
-          <p>© {new Date().getFullYear()} attendance.io พัฒนาขึ้นด้วยความใส่ใจในรายละเอียดสูงสุด</p>
-          <div className="flex space-x-6">
-            <a href="#" className="hover:text-white transition-colors">นโยบายความเป็นส่วนตัว</a>
-            <a href="#" className="hover:text-white transition-colors">เงื่อนไขการให้บริการ</a>
-          </div>
+        <p className="text-[#a1a1aa]">© {new Date().getFullYear()} ระบบเช็กชื่อและบันทึกประวัติการเข้าเรียน</p>
+        <div className="flex items-center space-x-6">
+          <span className="flex items-center space-x-1.5 text-xs text-[#a1a1aa]">
+            <span className="w-1.5 h-1.5 rounded-full bg-success"></span>
+            <span>SQLite & Google Sheets API Active</span>
+          </span>
+          <span className="text-[#6b7280]">v1.0.0</span>
         </div>
       </div>
     </footer>
@@ -197,6 +142,7 @@ function AdminLayout() {
   const navItems = [
     { to: '/admin', label: 'ภาพรวม', icon: LayoutDashboard, end: true },
     { to: '/admin/sessions', label: 'คาบเรียน', icon: Calendar },
+    { to: '/admin/students', label: 'รายชื่อนักเรียน', icon: Users },
     { to: '/admin/attendance', label: 'ตารางเช็กชื่อ', icon: ClipboardCheck },
     { to: '/admin/settings', label: 'ตั้งค่าระบบ', icon: Settings },
   ];
@@ -330,7 +276,7 @@ function AdminLayout() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-grow max-w-7xl w-full mx-auto px-6 py-12 md:py-16">
+      <main className="flex-grow max-w-7xl w-full mx-auto px-2.5 sm:px-6 py-6 md:py-16">
         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
           <Outlet />
         </div>
@@ -354,6 +300,7 @@ function App() {
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="sessions" element={<AdminSessions />} />
+          <Route path="students" element={<AdminStudents />} />
           <Route path="attendance" element={<AdminAttendanceList />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>

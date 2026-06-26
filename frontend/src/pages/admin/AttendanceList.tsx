@@ -20,6 +20,10 @@ export default function AdminAttendanceList() {
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [currentRecordId, setCurrentRecordId] = useState<number | null>(null);
 
+  // Custom dialog states
+  const [alertDialog, setAlertDialog] = useState<{ show: boolean; title: string; message: string; type: 'info' | 'error' | 'success' }>({ show: false, title: '', message: '', type: 'info' });
+  const [confirmDialog, setConfirmDialog] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void }>({ show: false, title: '', message: '', onConfirm: () => {} });
+
   // Form states
   const [prefix, setPrefix] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -171,21 +175,30 @@ export default function AdminAttendanceList() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('คุณแน่ใจหรือไม่ที่จะลบประวัติการเช็กชื่อของนักศึกษารายนี้จากฐานข้อมูล SQLite?')) return;
-
-    try {
-      await axios.delete(`/api/attendances/${id}`);
-      setSuccessMsg('ลบรายการเช็กชื่อสำเร็จแล้ว');
-      if (selectedSessionId) {
-        fetchAttendances(selectedSessionId);
+  const handleDelete = (id: number) => {
+    setConfirmDialog({
+      show: true,
+      title: 'ลบประวัติการเช็กชื่อ?',
+      message: 'คุณแน่ใจหรือไม่ที่จะลบประวัติการเช็กชื่อของนักศึกษารายนี้จากฐานข้อมูล SQLite?',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`/api/attendances/${id}`);
+          setSuccessMsg('ลบรายการเช็กชื่อสำเร็จแล้ว');
+          if (selectedSessionId) {
+            fetchAttendances(selectedSessionId);
+          }
+          setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err: any) {
+          console.error('Error deleting record:', err);
+          setAlertDialog({
+            show: true,
+            title: 'เกิดข้อผิดพลาด',
+            message: 'ไม่สามารถลบข้อมูลได้',
+            type: 'error'
+          });
+        }
       }
-      setTimeout(() => setSuccessMsg(''), 3000);
-    } catch (err: any) {
-      console.error('Error deleting record:', err);
-      setErrorMsg('ไม่สามารถลบข้อมูลได้');
-      setTimeout(() => setErrorMsg(''), 3000);
-    }
+    });
   };
 
   // Filter attendances by query
@@ -223,11 +236,11 @@ export default function AdminAttendanceList() {
   };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6 sm:space-y-10">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight flex items-center space-x-2">
+          <h1 className="text-2xl md:text-4xl font-semibold text-ink tracking-tight flex items-center space-x-2">
             <ClipboardCheck className="w-8 h-8 text-ink" />
             <span>ตารางเช็กชื่อเข้าเรียน</span>
           </h1>
@@ -248,7 +261,7 @@ export default function AdminAttendanceList() {
       </div>
 
       {/* Main Settings/Search Bar */}
-      <div className="bg-canvas border border-hairline rounded-lg p-5 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
+      <div className="bg-canvas border border-hairline rounded-lg p-4 sm:p-5 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
         {/* Week Selector Dropdown */}
         <div className="w-full md:w-80 space-y-1.5">
           <label className="block text-xs font-bold text-muted uppercase tracking-wider">เลือกสัปดาห์กิจกรรม</label>
@@ -537,6 +550,53 @@ export default function AdminAttendanceList() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Custom Alert Modal */}
+      {alertDialog.show && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 text-center">
+            <div className="space-y-2">
+              <h3 className="font-bold text-lg text-ink">{alertDialog.title}</h3>
+              <p className="text-sm text-muted">{alertDialog.message}</p>
+            </div>
+            <button
+              onClick={() => setAlertDialog({ ...alertDialog, show: false })}
+              className="w-full h-10 bg-primary hover:bg-primary-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Confirm Modal */}
+      {confirmDialog.show && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="space-y-2 text-center">
+              <h3 className="font-bold text-lg text-ink">{confirmDialog.title}</h3>
+              <p className="text-sm text-muted">{confirmDialog.message}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={() => setConfirmDialog({ ...confirmDialog, show: false })}
+                className="h-10 border border-hairline rounded-md text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  setConfirmDialog({ ...confirmDialog, show: false });
+                }}
+                className="h-10 bg-error hover:bg-error-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
+              >
+                ยืนยัน
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

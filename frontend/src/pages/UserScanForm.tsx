@@ -18,6 +18,7 @@ export default function UserScanForm() {
   const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('attendance_remember') !== 'false');
   const [error, setError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [autoFilled, setAutoFilled] = useState(false);
 
   // Session status states
   const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null } | null>(null);
@@ -63,6 +64,27 @@ export default function UserScanForm() {
     }
   }, [sessionId]);
 
+  useEffect(() => {
+    if (studentId.length === 11) {
+      axios.get(`/api/students/${studentId}`)
+        .then(res => {
+          if (res.data) {
+            setPrefix(res.data.prefix || 'นาย');
+            setFirstName(res.data.first_name);
+            setLastName(res.data.last_name);
+            setSelectedYear(res.data.class_year);
+            setSelectedMajorCode(res.data.major_code);
+            setSelectedRoom(res.data.room);
+            setAutoFilled(true);
+            setTimeout(() => setAutoFilled(false), 5000);
+          }
+        })
+        .catch(err => {
+          console.log('Student not found in pre-registered roster:', err.response?.data?.error || err.message);
+        });
+    }
+  }, [studentId]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -74,6 +96,11 @@ export default function UserScanForm() {
 
     if (isSessionClosed) {
       setError('คาบกิจกรรมนี้ปิดรับการลงชื่อเข้าเรียนแล้ว');
+      return;
+    }
+
+    if (!prefix) {
+      setError('กรุณาเลือกคำนำหน้าชื่อ (นาย หรือ นางสาว)');
       return;
     }
 
@@ -142,7 +169,7 @@ export default function UserScanForm() {
   ).sort();
 
   return (
-    <div className="min-h-screen bg-canvas flex flex-col justify-between py-12 px-6">
+    <div className="min-h-screen bg-canvas flex flex-col justify-between py-4 px-3 sm:py-12 sm:px-6">
       {/* Top Brand Logo */}
       <div className="flex justify-center">
         <div className="flex items-center space-x-2">
@@ -155,7 +182,7 @@ export default function UserScanForm() {
 
       {/* Success View */}
       {isSuccess ? (
-        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] text-center space-y-6 animate-in zoom-in-95 duration-200">
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-4 sm:p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] text-center space-y-4 sm:space-y-6 animate-in zoom-in-95 duration-200">
           <div className="w-16 h-16 bg-success/15 text-success rounded-full flex items-center justify-center mx-auto border border-success/30">
             <CheckCircle2 size={32} />
           </div>
@@ -196,24 +223,31 @@ export default function UserScanForm() {
         </div>
       ) : (
         /* Form View */
-        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-8">
-          <div className="text-center space-y-3">
-            <div className="w-12 h-12 bg-surface-soft border border-hairline text-ink rounded-full flex items-center justify-center mx-auto">
-              <Sparkles size={20} className="text-primary animate-pulse" />
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-4 sm:p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-5 sm:space-y-8">
+          <div className="text-center space-y-1.5 sm:space-y-3">
+            <div className="hidden sm:flex w-12 h-12 bg-surface-soft border border-hairline text-ink rounded-full items-center justify-center mx-auto">
+              <Sparkles className="text-primary animate-pulse w-6 h-6" />
             </div>
             <div className="space-y-1">
-              <span className="inline-block text-[11px] bg-primary text-white font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
+              <span className="inline-block text-[10px] sm:text-[11px] bg-primary text-white font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">
                 สัปดาห์ที่ {sessionId || 'พิเศษ'} {sessionInfo ? `(${sessionInfo.title})` : ''}
               </span>
-              <h1 className="text-2xl font-bold text-ink tracking-tight mt-2">เช็กชื่อเข้าร่วมกิจกรรม</h1>
+              <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight mt-1">เช็กชื่อเข้าร่วมกิจกรรม</h1>
               {sessionInfo && sessionInfo.close_at && !isSessionClosed && (
-                <p className="text-error text-xs font-semibold mt-1">
+                <p className="text-error text-[11px] sm:text-xs font-semibold mt-0.5 sm:mt-1">
                   ⏰ ปิดรับเวลา {new Date(sessionInfo.close_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
                 </p>
               )}
-              <p className="text-muted text-xs mt-1">กรุณากรอกข้อมูลเพื่อใช้เป็นหลักฐานยืนยันการเช็กชื่อ</p>
+              <p className="hidden sm:block text-muted text-xs mt-1">กรุณากรอกข้อมูลเพื่อใช้เป็นหลักฐานยืนยันการเช็กชื่อ</p>
             </div>
           </div>
+
+          {autoFilled && (
+            <div className="flex items-center space-x-2 p-3 bg-success/15 border border-success/30 text-success text-xs font-semibold rounded-md animate-in fade-in duration-200">
+              <CheckCircle2 size={16} className="flex-shrink-0" />
+              <span>ดึงข้อมูลรายชื่อจากระบบล่วงหน้าสำเร็จ!</span>
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center space-x-2 p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md">
@@ -232,23 +266,51 @@ export default function UserScanForm() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-              <div className="space-y-1.5 sm:col-span-3">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">คำนำหน้า</label>
-                <select
-                  required
-                  value={prefix}
-                  onChange={e => setPrefix(e.target.value)}
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+            {/* คำนำหน้าชื่อ (Prefix Selection Buttons) */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink uppercase tracking-wider">คำนำหน้าชื่อ</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
                   disabled={isSessionClosed}
-                  className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+                  onClick={() => setPrefix('นาย')}
+                  className={`h-10 flex items-center justify-center space-x-1.5 border rounded-md font-semibold text-sm transition-all cursor-pointer ${
+                    prefix === 'นาย'
+                      ? 'border-brand-accent bg-brand-accent/5 text-brand-accent ring-1 ring-brand-accent'
+                      : 'border-hairline bg-canvas text-ink hover:bg-surface-soft'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                  <option value="" disabled>-- เลือก --</option>
-                  <option value="นาย">นาย</option>
-                  <option value="นางสาว">นางสาว</option>
-                </select>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <circle cx="10" cy="14" r="6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="15" y1="9" x2="21" y2="3" />
+                  </svg>
+                  <span>นาย</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isSessionClosed}
+                  onClick={() => setPrefix('นางสาว')}
+                  className={`h-10 flex items-center justify-center space-x-1.5 border rounded-md font-semibold text-sm transition-all cursor-pointer ${
+                    prefix === 'นางสาว'
+                      ? 'border-rose-500 bg-rose-500/5 text-rose-600 ring-1 ring-rose-500'
+                      : 'border-hairline bg-canvas text-ink hover:bg-surface-soft'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <circle cx="12" cy="9" r="6" />
+                    <line x1="12" y1="15" x2="12" y2="21" />
+                    <line x1="9" y1="18" x2="15" y2="18" />
+                  </svg>
+                  <span>นางสาว</span>
+                </button>
               </div>
-              <div className="space-y-1.5 sm:col-span-4">
+            </div>
+
+            {/* ชื่อจริง และ นามสกุล */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div className="space-y-1">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ชื่อจริง</label>
                 <input 
                   required 
@@ -260,7 +322,7 @@ export default function UserScanForm() {
                   placeholder="เช่น ณัฐพัทธ์"
                 />
               </div>
-              <div className="space-y-1.5 sm:col-span-5">
+              <div className="space-y-1">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">นามสกุล</label>
                 <input 
                   required 
@@ -274,7 +336,7 @@ export default function UserScanForm() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <div className="flex justify-between items-center">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
                 {studentId.length > 0 && (
@@ -310,10 +372,10 @@ export default function UserScanForm() {
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ห้องเรียน / สาขาวิชา</label>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5">
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <div>
                   <select
                     required
                     value={selectedYear}
@@ -332,7 +394,7 @@ export default function UserScanForm() {
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
+                <div>
                   <select
                     required
                     disabled={!selectedYear || isSessionClosed}
@@ -350,7 +412,7 @@ export default function UserScanForm() {
                   </select>
                 </div>
 
-                <div className="space-y-1.5">
+                <div>
                   <select
                     required
                     disabled={!selectedMajorCode || isSessionClosed}
@@ -367,7 +429,7 @@ export default function UserScanForm() {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 py-1">
+            <div className="flex items-center space-x-2 py-0.5">
               <input
                 type="checkbox"
                 id="rememberMe"
@@ -384,14 +446,14 @@ export default function UserScanForm() {
             <button 
               type="submit" 
               disabled={isSessionClosed}
-              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-2 cursor-pointer"
+              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 sm:mt-2 cursor-pointer"
             >
               <CheckSquare size={16} />
               <span>{isSessionClosed ? 'ปิดรับเช็กชื่อแล้ว' : 'ยืนยันการเช็กชื่อกิจกรรม'}</span>
             </button>
           </form>
 
-          <div className="border-t border-hairline pt-5 text-center">
+          <div className="border-t border-hairline pt-4 sm:pt-5 text-center">
             <Link 
               to="/" 
               className="inline-flex items-center space-x-1.5 text-xs font-semibold text-muted hover:text-ink transition-colors"
@@ -404,7 +466,7 @@ export default function UserScanForm() {
       )}
 
       {/* Footer Branding */}
-      <div className="text-center text-[11px] text-muted-soft mt-8">
+      <div className="text-center text-[11px] text-muted-soft mt-4 sm:mt-8">
         © {new Date().getFullYear()} attendance.io ขับเคลื่อนระบบด้วยฐานข้อมูล SQLite และ Google Sheets API
       </div>
     </div>

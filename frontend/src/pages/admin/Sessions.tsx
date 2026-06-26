@@ -285,11 +285,11 @@ export default function AdminSessions() {
   };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6 sm:space-y-10">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl md:text-4xl font-semibold text-ink tracking-tight">
+          <h1 className="text-2xl md:text-4xl font-semibold text-ink tracking-tight">
             จัดการคาบกิจกรรม
           </h1>
           <p className="text-muted text-sm md:text-base mt-2">
@@ -402,7 +402,7 @@ export default function AdminSessions() {
             const isExpired = session.close_at && new Date() > new Date(session.close_at);
             const isClosed = session.is_active === 0 || isExpired;
             return (
-              <div key={session.id} className="bg-surface-card border border-hairline p-5 rounded-lg space-y-4">
+              <div key={session.id} className="bg-surface-card border border-hairline p-4 sm:p-5 rounded-lg space-y-4">
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2">

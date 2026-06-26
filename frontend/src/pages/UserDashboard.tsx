@@ -242,7 +242,7 @@ export default function UserDashboard() {
 
       {/* Footer */}
       <footer className="bg-surface-dark text-on-dark-soft border-t border-surface-dark-elevated">
-        <div className="max-w-4xl mx-auto px-6 py-12 flex flex-col sm:flex-row justify-between items-center text-xs space-y-4 sm:space-y-0">
+        <div className="max-w-4xl mx-auto px-6 py-6 flex flex-col sm:flex-row justify-between items-center text-xs space-y-4 sm:space-y-0">
           <p>© {new Date().getFullYear()} attendance.io สงวนลิขสิทธิ์ทั้งหมด</p>
           <div className="flex space-x-6 text-[#a1a1aa]">
             <a href="#" className="hover:text-white transition-colors">ติดต่อรับความช่วยเหลือ</a>

@@ -61,6 +61,18 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(class_year, major_code, room)
   );
+
+  CREATE TABLE IF NOT EXISTS students (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL UNIQUE,
+    prefix TEXT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    class_year TEXT NOT NULL,
+    major_code TEXT NOT NULL,
+    room TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Safe migrations for sessions columns
@@ -135,8 +147,25 @@ try {
 }
 
 // Seed default Google Sheet credentials and sheet ID if not set
-const defaultCredPath = path.join(__dirname, '../../acoustic-arch-477716-p3-a56a5fe41614.json');
+let defaultCredPath = '/app/google-credentials.json';
 const defaultSheetId = '1U_DKH5N7PPpqJ7TRsbaRjIcTqe1dbveSaxek6Gy9h6w';
+
+if (!fs.existsSync(defaultCredPath)) {
+  const rootDir = path.join(__dirname, '../../');
+  try {
+    const files = fs.readdirSync(rootDir);
+    const credFile = files.find(f => f.startsWith('acoustic-arch-') && f.endsWith('.json'));
+    if (credFile) {
+      defaultCredPath = path.join(rootDir, credFile);
+      console.log(`Auto-detected Google Sheets credentials file: ${credFile}`);
+    } else {
+      defaultCredPath = path.join(rootDir, 'acoustic-arch-477716-p3-fcde8dc29abd.json');
+    }
+  } catch (err) {
+    defaultCredPath = path.join(__dirname, '../../acoustic-arch-477716-p3-fcde8dc29abd.json');
+  }
+}
+
 if (fs.existsSync(defaultCredPath)) {
   try {
     const defaultCred = fs.readFileSync(defaultCredPath, 'utf8');
@@ -146,6 +175,10 @@ if (fs.existsSync(defaultCredPath)) {
       db.prepare('INSERT INTO settings (id, sheet_id, credentials_json) VALUES (1, ?, ?)')
         .run(defaultSheetId, defaultCred);
       console.log('Successfully pre-populated settings with default Google Sheets key and sheet ID.');
+    } else if (!existing.credentials_json || !existing.sheet_id) {
+      db.prepare('UPDATE settings SET sheet_id = ?, credentials_json = ? WHERE id = 1')
+        .run(defaultSheetId, defaultCred);
+      console.log('Successfully updated settings with default Google Sheets key and sheet ID.');
     }
   } catch (error) {
     console.error('Error pre-populating credentials:', error);
