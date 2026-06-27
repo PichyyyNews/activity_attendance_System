@@ -12,7 +12,10 @@ import {
   Check,
   RotateCcw,
   Download,
-  PieChart
+  PieChart,
+  Users,
+  GraduationCap,
+  LayoutDashboard
 } from 'lucide-react';
 
 interface Session {
@@ -92,6 +95,8 @@ export default function AdminDashboard() {
   // Dropdown Master Data
   const [sessions, setSessions] = useState<Session[]>([]);
   const [availableMajors, setAvailableMajors] = useState<string[]>([]);
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const [availableRooms, setAvailableRooms] = useState<string[]>([]);
 
   // Statistics Data
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -137,7 +142,160 @@ export default function AdminDashboard() {
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
   const [hoveredRoomIndex, setHoveredRoomIndex] = useState<number | null>(null);
   const [hoveredScanIndex, setHoveredScanIndex] = useState<number | null>(null);
-  const [hoveredDonutSegment, setHoveredDonutSegment] = useState<'present' | 'absent' | null>(null);
+
+  // Tab states for ratio display
+  const [ratioTab, setRatioTab] = useState<'summary' | 'year' | 'major' | 'room' | 'gender'>('summary');
+
+  const getGender = (prefix: string) => {
+    const p = prefix || '';
+    if (p === 'นาย' || p === 'เด็กชาย' || p === 'ด.ช.' || p === 'ด.ช') {
+      return 'ชาย';
+    }
+    return 'หญิง';
+  };
+
+  // Concentric Donut Chart states and types
+  const [hoveredPath, setHoveredPath] = useState<string[] | null>(null);
+  const [hoveredSeg, setHoveredSeg] = useState<{ label: string; value: number; percentage: number; color: string } | null>(null);
+
+  const [searchStudentId, setSearchStudentId] = useState('');
+
+  const getSegmentColor = (status: 'present' | 'absent', path: string[], level: number) => {
+    if (level === 1) {
+      return status === 'present' ? '#10B981' : '#EF4444';
+    }
+    
+    // Hash the path to get a stable random value
+    const str = path.join('-');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    hash = Math.abs(hash);
+
+    if (status === 'present') {
+      // Greenish HSL: Hue between 135 and 185
+      const h = 135 + (hash % 50);
+      // Saturation: 65% - 85%
+      const s = 65 + (hash % 20);
+      // Lightness: 50%
+      const l = 50 + (hash % 6);
+      return `hsl(${h}, ${s}%, ${l}%)`;
+    } else {
+      // Redish HSL: Hue between 345 and 395 (wraps to 0-35)
+      const h = (345 + (hash % 45)) % 360;
+      // Saturation: 70% - 90%
+      const s = 70 + (hash % 20);
+      // Lightness: 52%
+      const l = 52 + (hash % 6);
+      return `hsl(${h}, ${s}%, ${l}%)`;
+    }
+  };
+
+  const getSegmentsForTab = (tab: 'summary' | 'year' | 'major' | 'room' | 'gender') => {
+    if (!stats) return [];
+
+    const allStudents = [
+      ...stats.presentList.map(s => ({ ...s, status: 'present' as const })),
+      ...stats.absentList.map(s => ({ ...s, status: 'absent' as const }))
+    ];
+
+    const totalCount = allStudents.length;
+    if (totalCount === 0) return [];
+
+    const groupings: { [key: string]: { present: number; absent: number } } = {};
+
+    allStudents.forEach(s => {
+      let key = '';
+      if (tab === 'summary') {
+        key = s.status === 'present' ? 'มาเรียน' : 'ขาดเรียน';
+      } else if (tab === 'year') {
+        key = s.class_year ? `ปี ${s.class_year}` : 'ไม่ระบุ';
+      } else if (tab === 'major') {
+        key = s.major_code || 'ไม่ระบุ';
+      } else if (tab === 'room') {
+        key = s.room ? `${s.class_year || ''}${s.major_code || ''}${s.room}` : 'ไม่ระบุ';
+      } else if (tab === 'gender') {
+        key = getGender(s.prefix);
+      }
+
+      if (!groupings[key]) {
+        groupings[key] = { present: 0, absent: 0 };
+      }
+
+      if (s.status === 'present') {
+        groupings[key].present++;
+      } else {
+        groupings[key].absent++;
+      }
+    });
+
+    const segments: Array<{ label: string; status: 'present' | 'absent'; value: number; color: string; path: string[] }> = [];
+
+    const groupEntries = Object.entries(groupings).sort((a, b) => a[0].localeCompare(b[0]));
+
+    groupEntries.forEach(([groupName, counts]) => {
+      if (tab === 'summary') {
+        if (groupName === 'มาเรียน' && counts.present > 0) {
+          segments.push({
+            label: 'มาเรียน (Present)',
+            status: 'present',
+            value: counts.present,
+            color: '#10B981',
+            path: ['มาเรียน']
+          });
+        } else if (groupName === 'ขาดเรียน' && counts.absent > 0) {
+          segments.push({
+            label: 'ขาดเรียน (Absent)',
+            status: 'absent',
+            value: counts.absent,
+            color: '#EF4444',
+            path: ['ขาดเรียน']
+          });
+        }
+      } else {
+        if (counts.present > 0) {
+          segments.push({
+            label: `มาเรียน (${groupName})`,
+            status: 'present',
+            value: counts.present,
+            color: getSegmentColor('present', [groupName], 2),
+            path: ['มาเรียน', groupName]
+          });
+        }
+        if (counts.absent > 0) {
+          segments.push({
+            label: `ขาดเรียน (${groupName})`,
+            status: 'absent',
+            value: counts.absent,
+            color: getSegmentColor('absent', [groupName], 2),
+            path: ['ขาดเรียน', groupName]
+          });
+        }
+      }
+    });
+
+    let currentAngle = -90;
+    return segments.map(seg => {
+      const percentage = (seg.value / totalCount) * 100;
+      const angle = (seg.value / totalCount) * 360;
+      const startAngle = currentAngle;
+      currentAngle += angle;
+      return {
+        ...seg,
+        percentage: Math.round(percentage * 10) / 10,
+        startAngle,
+        angle
+      };
+    });
+  };
+
+  const formatPathLabel = (path: string[]) => {
+    if (path.length <= 1) return path[0] || '';
+    const status = path[0];
+    const details = path.slice(1).join(' - ');
+    return `${status} (${details})`;
+  };
 
   // Fetch unique majors list for the filters
   const fetchMajors = async () => {
@@ -146,6 +304,12 @@ export default function AdminDashboard() {
       if (res.data) {
         const unique = Array.from(new Set(res.data.map((m: any) => m.major_code))) as string[];
         setAvailableMajors(unique.sort());
+
+        const uniqueYears = Array.from(new Set(res.data.map((m: any) => m.class_year.toString()))) as string[];
+        setAvailableYears(uniqueYears.sort((a, b) => a.localeCompare(b)));
+
+        const uniqueRooms = Array.from(new Set(res.data.map((m: any) => m.room.toString()))) as string[];
+        setAvailableRooms(uniqueRooms.sort((a, b) => a.localeCompare(b)));
       }
     } catch (err) {
       console.error('Error fetching majors list:', err);
@@ -253,6 +417,12 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleSearchStudent = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchStudentId.trim()) return;
+    handleOpenStudentHistory(searchStudentId.trim());
+  };
+
   // Helper: Format ISO date string to Thai short time
   const formatTime = (isoString?: string) => {
     if (!isoString) return '-';
@@ -347,14 +517,14 @@ export default function AdminDashboard() {
   const radialOffset = radialCircumference - (rate / 100) * radialCircumference;
 
   // Donut chart parameters
-  const donutRadius = 50;
-  const donutCircumference = 2 * Math.PI * donutRadius;
   const totalExpected = stats?.totalExpected || 0;
   const presentPercent = Math.min(totalExpected > 0 ? ((stats?.totalPresent || 0) / totalExpected) * 100 : 0, 100);
-  const absentPercent = Math.min(totalExpected > 0 ? ((stats?.totalAbsent || 0) / totalExpected) * 100 : 0, 100);
 
-  const donutPresentOffset = 0;
-  const donutAbsentOffset = -(presentPercent / 100) * donutCircumference;
+  // Average weekly calculations for All Weeks
+  const numWeeks = sessions.length || 1;
+  const uniqueExpected = Math.round(totalExpected / numWeeks);
+  const avgPresent = Math.round((stats?.totalPresent || 0) / numWeeks);
+  const avgAbsent = Math.round((stats?.totalAbsent || 0) / numWeeks);
 
   if (loading && !stats) {
     return (
@@ -389,6 +559,32 @@ export default function AdminDashboard() {
             <span>Google Sheet: {isSheetsConnected ? 'เชื่อมต่อแล้ว' : 'ไม่ได้เชื่อมต่อ'}</span>
           </div>
         </div>
+      </div>
+
+      {/* 🔍 ระบบตรวจสอบการเช็กชื่อรายบุคคล */}
+      <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4">
+        <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
+          <Search size={16} className="text-primary" />
+          <span>ตรวจสอบประวัติการเช็กชื่อนักศึกษารายบุคคล</span>
+        </h3>
+        <form onSubmit={handleSearchStudent} className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-grow">
+            <input 
+              type="text" 
+              value={searchStudentId}
+              onChange={e => setSearchStudentId(e.target.value)}
+              className="w-full h-11 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all font-mono"
+              placeholder="กรอกรหัสนักศึกษา 11 หลัก เช่น 64012345678" 
+            />
+          </div>
+          <button 
+            type="submit" 
+            className="h-11 bg-primary hover:bg-primary-active text-white px-6 rounded-md text-sm font-semibold flex items-center justify-center space-x-2 transition-all active:scale-98 cursor-pointer"
+          >
+            <Search size={15} />
+            <span>ตรวจสอบสถิติ</span>
+          </button>
+        </form>
       </div>
 
       {/* Advanced Filter Controls */}
@@ -443,10 +639,9 @@ export default function AdminDashboard() {
               className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
             >
               <option value="">ทั้งหมด</option>
-              <option value="1">ปี 1</option>
-              <option value="2">ปี 2</option>
-              <option value="3">ปี 3</option>
-              <option value="4">ปี 4</option>
+              {availableYears.map(year => (
+                <option key={year} value={year}>ปี {year}</option>
+              ))}
             </select>
           </div>
 
@@ -474,11 +669,9 @@ export default function AdminDashboard() {
               className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
             >
               <option value="">ทั้งหมด</option>
-              <option value="1">ห้อง 1</option>
-              <option value="2">ห้อง 2</option>
-              <option value="3">ห้อง 3</option>
-              <option value="4">ห้อง 4</option>
-              <option value="5">ห้อง 5</option>
+              {availableRooms.map(r => (
+                <option key={r} value={r}>ห้อง {r}</option>
+              ))}
             </select>
           </div>
 
@@ -506,7 +699,9 @@ export default function AdminDashboard() {
             <div className="space-y-1">
               <span className="text-xs font-bold uppercase tracking-wider text-muted block">อัตราการเข้าเรียน</span>
               <div className="text-3xl font-extrabold text-ink">{stats.attendanceRate}%</div>
-              <div className="text-[11px] text-muted-soft">ของนักเรียนทั้งหมดตามตัวกรอง</div>
+              <div className="text-[11px] text-muted-soft">
+                {selectedSessionId === 'all' ? 'สะสมจากทุกคาบกิจกรรม' : 'ของนักเรียนทั้งหมดตามตัวกรอง'}
+              </div>
             </div>
             
             <div className="relative w-24 h-24 flex items-center justify-center">
@@ -543,15 +738,36 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-3 gap-2 mt-4 pt-2">
               <div className="text-center border-r border-hairline">
                 <div className="text-xl font-extrabold text-success">{stats.totalPresent}</div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">มาเรียน</div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">
+                  มาเรียน ({selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'})
+                </div>
+                {selectedSessionId === 'all' && (
+                  <div className="text-[9px] text-muted-soft mt-0.5 font-bold">
+                    เฉลี่ย {avgPresent} คน
+                  </div>
+                )}
               </div>
               <div className="text-center border-r border-hairline">
                 <div className="text-xl font-extrabold text-error">{stats.totalAbsent}</div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">ขาดเรียน</div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">
+                  ขาดเรียน ({selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'})
+                </div>
+                {selectedSessionId === 'all' && (
+                  <div className="text-[9px] text-muted-soft mt-0.5 font-bold">
+                    เฉลี่ย {avgAbsent} คน
+                  </div>
+                )}
               </div>
               <div className="text-center">
                 <div className="text-xl font-extrabold text-ink">{stats.totalExpected}</div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">ทั้งหมด</div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">
+                  ทั้งหมด ({selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'})
+                </div>
+                {selectedSessionId === 'all' && (
+                  <div className="text-[9px] text-muted-soft mt-0.5 font-bold">
+                    จาก {uniqueExpected} คน
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -690,7 +906,8 @@ export default function AdminDashboard() {
                         const step = len > 1 ? 440 / (len - 1) : 440;
                         const x = 40 + idx * step;
                         const y = 140 - (Math.min(t.rate, 100) / 100) * 120;
-                        return { x, y, data: t };
+                        const diff = idx > 0 ? t.rate - stats.weeklyTrend[idx - 1].rate : 0;
+                        return { x, y, data: t, diff };
                       });
                       
                       // Build Bezier Curved Path (Slight curve smoothing)
@@ -739,10 +956,10 @@ export default function AdminDashboard() {
                             >
                               {/* Pulse circle on hover */}
                               <circle
-                                cx={p.x}
-                                cy={p.y}
-                                r={hoveredTrendIndex === idx ? 8 : 4.5}
-                                className="fill-primary/20 stroke-none transition-all"
+                                  cx={p.x}
+                                  cy={p.y}
+                                  r={hoveredTrendIndex === idx ? 8 : 4.5}
+                                  className="fill-primary/20 stroke-none transition-all"
                               />
                               {/* Actual point dot */}
                               <circle
@@ -752,6 +969,20 @@ export default function AdminDashboard() {
                                 className="fill-canvas stroke-primary transition-all duration-150"
                                 strokeWidth="2.5"
                               />
+                              
+                              {/* Stock change indicator label (for index >= 1) */}
+                              {idx >= 1 && (
+                                <text
+                                  x={p.x}
+                                  y={p.y - 11}
+                                  className="text-[9px] font-black text-center select-none"
+                                  textAnchor="middle"
+                                  fill={p.diff > 0 ? '#10B981' : p.diff < 0 ? '#EF4444' : '#6B7280'}
+                                >
+                                  {p.diff > 0 ? '▲ +' : p.diff < 0 ? '▼ ' : ''}
+                                  {Math.round(p.diff * 10) / 10}%
+                                </text>
+                              )}
                               
                               {/* X Axis Labels */}
                               <text
@@ -781,106 +1012,272 @@ export default function AdminDashboard() {
                   
                   {/* Floating HTML Tooltip */}
                   {hoveredTrendIndex !== null && stats.weeklyTrend[hoveredTrendIndex] && (
-                    <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1 animate-in fade-in duration-150 z-10 max-w-[200px]">
+                    <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1.5 animate-in fade-in duration-150 z-10 min-w-[170px] max-w-[220px]">
                       <div className="font-bold text-ink">สัปดาห์ที่ {stats.weeklyTrend[hoveredTrendIndex].weekNumber}</div>
-                      <div className="text-muted truncate">{stats.weeklyTrend[hoveredTrendIndex].title}</div>
-                      <div className="flex justify-between gap-4 pt-1 font-semibold text-primary">
-                        <span>อัตราเข้าเรียน:</span>
-                        <span>{stats.weeklyTrend[hoveredTrendIndex].rate}%</span>
+                      <div className="text-muted truncate text-[11px] pb-1 border-b border-hairline">{stats.weeklyTrend[hoveredTrendIndex].title}</div>
+                      <div className="flex justify-between items-center gap-4 pt-1 font-semibold">
+                        <span className="text-muted">อัตราเข้าเรียน:</span>
+                        <span className="text-ink font-mono font-bold text-sm">{stats.weeklyTrend[hoveredTrendIndex].rate}%</span>
                       </div>
+                      {hoveredTrendIndex > 0 && (() => {
+                        const prevRate = stats.weeklyTrend[hoveredTrendIndex - 1].rate;
+                        const currRate = stats.weeklyTrend[hoveredTrendIndex].rate;
+                        const diff = currRate - prevRate;
+                        const isUp = diff > 0;
+                        const isDown = diff < 0;
+                        return (
+                          <div className="flex justify-between items-center gap-4 font-bold text-[11px]">
+                            <span className="text-muted font-normal">เปรียบเทียบคาบก่อน:</span>
+                            <span 
+                              className="font-mono flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px]"
+                              style={{ 
+                                color: isUp ? '#10B981' : isDown ? '#EF4444' : '#6B7280',
+                                backgroundColor: isUp ? 'rgba(16, 185, 129, 0.1)' : isDown ? 'rgba(239, 68, 68, 0.1)' : 'rgba(107, 114, 128, 0.1)'
+                              }}
+                            >
+                              {isUp ? '▲ +' : isDown ? '▼ ' : ''}
+                              {Math.round(diff * 10) / 10}%
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Chart 2: Donut Chart (Proportion of Present vs Absent) */}
-            <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md">
-              <div className="flex items-center justify-between border-b border-hairline pb-3">
-                <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
-                  <PieChart size={16} className="text-primary" />
-                  <span>สัดส่วนนักเรียนในการเข้าเรียนคาบปัจจุบัน</span>
-                </h3>
+            {/* Chart 2: Single Donut Chart with Folder Tabs */}
+            <div className="bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md">
+              {/* Folder Tabs (Tab แบบแฟ้ม) */}
+              <div className="flex border-b border-hairline bg-surface-soft/40 px-2 pt-2 gap-1 overflow-x-auto scrollbar-none">
+                <button
+                  onClick={() => { setRatioTab('summary'); setHoveredPath(null); setHoveredSeg(null); }}
+                  className={`px-2.5 py-2 text-[11px] font-bold rounded-t-lg border-t border-x transition-all flex items-center space-x-1 cursor-pointer -mb-px whitespace-nowrap ${
+                    ratioTab === 'summary'
+                      ? 'bg-canvas border-hairline text-primary border-t-2 border-t-primary font-extrabold shadow-sm'
+                      : 'bg-transparent border-transparent text-muted hover:text-ink hover:bg-surface-soft'
+                  }`}
+                >
+                  <PieChart size={13} />
+                  <span>1. ภาพรวม</span>
+                </button>
+                <button
+                  onClick={() => { setRatioTab('year'); setHoveredPath(null); setHoveredSeg(null); }}
+                  className={`px-2.5 py-2 text-[11px] font-bold rounded-t-lg border-t border-x transition-all flex items-center space-x-1 cursor-pointer -mb-px whitespace-nowrap ${
+                    ratioTab === 'year'
+                      ? 'bg-canvas border-hairline text-primary border-t-2 border-t-primary font-extrabold shadow-sm'
+                      : 'bg-transparent border-transparent text-muted hover:text-ink hover:bg-surface-soft'
+                  }`}
+                >
+                  <GraduationCap size={13} />
+                  <span>2. ชั้นปี</span>
+                </button>
+                <button
+                  onClick={() => { setRatioTab('major'); setHoveredPath(null); setHoveredSeg(null); }}
+                  className={`px-2.5 py-2 text-[11px] font-bold rounded-t-lg border-t border-x transition-all flex items-center space-x-1 cursor-pointer -mb-px whitespace-nowrap ${
+                    ratioTab === 'major'
+                      ? 'bg-canvas border-hairline text-primary border-t-2 border-t-primary font-extrabold shadow-sm'
+                      : 'bg-transparent border-transparent text-muted hover:text-ink hover:bg-surface-soft'
+                  }`}
+                >
+                  <Building size={13} />
+                  <span>3. สาขา</span>
+                </button>
+                <button
+                  onClick={() => { setRatioTab('room'); setHoveredPath(null); setHoveredSeg(null); }}
+                  className={`px-2.5 py-2 text-[11px] font-bold rounded-t-lg border-t border-x transition-all flex items-center space-x-1 cursor-pointer -mb-px whitespace-nowrap ${
+                    ratioTab === 'room'
+                      ? 'bg-canvas border-hairline text-primary border-t-2 border-t-primary font-extrabold shadow-sm'
+                      : 'bg-transparent border-transparent text-muted hover:text-ink hover:bg-surface-soft'
+                  }`}
+                >
+                  <LayoutDashboard size={13} />
+                  <span>4. ห้องเรียน</span>
+                </button>
+                <button
+                  onClick={() => { setRatioTab('gender'); setHoveredPath(null); setHoveredSeg(null); }}
+                  className={`px-2.5 py-2 text-[11px] font-bold rounded-t-lg border-t border-x transition-all flex items-center space-x-1 cursor-pointer -mb-px whitespace-nowrap ${
+                    ratioTab === 'gender'
+                      ? 'bg-canvas border-hairline text-primary border-t-2 border-t-primary font-extrabold shadow-sm'
+                      : 'bg-transparent border-transparent text-muted hover:text-ink hover:bg-surface-soft'
+                  }`}
+                >
+                  <Users size={13} />
+                  <span>5. เพศ</span>
+                </button>
               </div>
 
-              {totalExpected === 0 ? (
-                <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ไม่มีรายชื่อที่จะแสดงสัดส่วน</div>
-              ) : (
-                <div className="flex flex-col sm:flex-row items-center justify-around py-4 gap-6">
-                  {/* Donut SVG */}
-                  <div className="relative w-40 h-40 flex items-center justify-center">
-                    <svg viewBox="0 0 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
-                      {/* Segment: Present */}
-                      <circle
-                        cx="60"
-                        cy="60"
-                        r={donutRadius}
-                        className="stroke-success fill-none cursor-pointer transition-all duration-300"
-                        strokeWidth={hoveredDonutSegment === 'present' ? '12' : '9'}
-                        strokeDasharray={donutCircumference}
-                        strokeDashoffset={donutPresentOffset}
-                        onMouseEnter={() => setHoveredDonutSegment('present')}
-                        onMouseLeave={() => setHoveredDonutSegment(null)}
-                      />
-                      {/* Segment: Absent */}
-                      <circle
-                        cx="60"
-                        cy="60"
-                        r={donutRadius}
-                        className="stroke-error fill-none cursor-pointer transition-all duration-300"
-                        strokeWidth={hoveredDonutSegment === 'absent' ? '12' : '9'}
-                        strokeDasharray={donutCircumference}
-                        strokeDashoffset={donutAbsentOffset}
-                        onMouseEnter={() => setHoveredDonutSegment('absent')}
-                        onMouseLeave={() => setHoveredDonutSegment(null)}
-                      />
-                    </svg>
-                    
-                    {/* Donut Centered Details */}
-                    {/* Donut Centered Details */}
-                    <div className="absolute text-center select-none pointer-events-none">
-                      <div className="text-[10px] font-bold text-muted uppercase">มาเรียน</div>
-                      <div className="text-2xl font-black text-ink">{Math.round(presentPercent)}%</div>
-                      <div className="text-[9px] text-muted-soft font-semibold">{stats.totalPresent} / {totalExpected} คน</div>
+              <div className="p-5 flex-grow flex flex-col justify-between space-y-4">
+                {totalExpected === 0 ? (
+                  <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ไม่มีรายชื่อที่จะแสดงสัดส่วน</div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center justify-around py-4 gap-6">
+                    {/* The Single Donut Chart */}
+                    {(() => {
+                      const segments = getSegmentsForTab(ratioTab);
+                      const radius = 48;
+                      const circ = 2 * Math.PI * radius; // 301.6
+                      
+                      return (
+                        <div className="relative w-48 h-48 flex items-center justify-center flex-shrink-0 animate-in fade-in duration-200">
+                          <svg viewBox="0 0 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
+                            {segments.map((seg, idx) => {
+                              const offset = circ - (seg.percentage / 100) * circ;
+                              const pathKey = seg.path.join('-');
+                              const isHovered = hoveredPath !== null && pathKey === hoveredPath.join('-');
+                              
+                              // Determine opacity
+                              let opacity = 1.0;
+                              if (hoveredPath !== null && !isHovered) {
+                                opacity = 0.35;
+                              }
+
+                              // Determine stroke width
+                              const strokeWidth = isHovered ? 13 : 9.5;
+
+                              return (
+                                <circle
+                                  key={idx}
+                                  cx="60"
+                                  cy="60"
+                                  r={radius}
+                                  className="fill-none cursor-pointer transition-all duration-300"
+                                  stroke={seg.color}
+                                  strokeWidth={strokeWidth}
+                                  strokeDasharray={circ}
+                                  strokeDashoffset={offset}
+                                  transform={`rotate(${seg.startAngle} 60 60)`}
+                                  style={{ opacity }}
+                                  onMouseEnter={() => {
+                                    setHoveredPath(seg.path);
+                                    setHoveredSeg({
+                                      label: formatPathLabel(seg.path),
+                                      value: seg.value,
+                                      percentage: seg.percentage,
+                                      color: seg.color
+                                    });
+                                  }}
+                                  onMouseLeave={() => {
+                                    setHoveredPath(null);
+                                    setHoveredSeg(null);
+                                  }}
+                                />
+                              );
+                            })}
+                          </svg>
+
+                          {/* Center Details */}
+                          <div className="absolute text-center select-none pointer-events-none px-4 w-full">
+                            {hoveredSeg ? (
+                              <div className="animate-in fade-in duration-100 flex flex-col items-center justify-center">
+                                <div 
+                                  className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full mb-1 text-white border shadow-xs text-center max-w-[120px] truncate"
+                                  style={{ backgroundColor: hoveredSeg.color, borderColor: 'rgba(0,0,0,0.1)' }}
+                                >
+                                  {hoveredSeg.label.split(' (')[0]}
+                                </div>
+                                <div className="text-[8px] font-bold text-muted truncate max-w-[110px] leading-tight mb-0.5">
+                                  {hoveredSeg.label.includes(' (') ? hoveredSeg.label.substring(hoveredSeg.label.indexOf('(')) : ''}
+                                </div>
+                                <div className="text-xl font-black text-ink leading-tight">
+                                  {hoveredSeg.percentage}%
+                                </div>
+                                {selectedSessionId === 'all' ? (
+                                  <div className="text-[7.5px] text-muted-soft font-bold leading-tight">
+                                    <div>เฉลี่ย {Math.round(hoveredSeg.value / numWeeks)} จาก {uniqueExpected} คน</div>
+                                    <div className="text-[6.5px] font-medium opacity-80">({numWeeks} สัปดาห์: {hoveredSeg.value}/{totalExpected} คน-ครั้ง)</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-[8px] text-muted-soft font-semibold leading-normal">
+                                    {hoveredSeg.value} จาก {totalExpected} คน
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div>
+                                <div className="text-[9px] font-bold text-muted uppercase">มาเรียนรวม</div>
+                                <div className="text-2xl font-black text-ink">{Math.round(presentPercent)}%</div>
+                                {selectedSessionId === 'all' ? (
+                                  <div className="text-[7.5px] text-muted-soft font-bold leading-tight">
+                                    <div>เฉลี่ย {avgPresent} / {uniqueExpected} คน</div>
+                                    <div className="text-[6.5px] font-medium opacity-80">({numWeeks} สัปดาห์: {stats.totalPresent}/{totalExpected} คน-ครั้ง)</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-[9px] text-muted-soft font-semibold">{stats.totalPresent} / {totalExpected} คน</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Legends & Details list */}
+                    <div className="flex-grow max-h-[220px] overflow-y-auto space-y-2 pr-1 py-1 w-full sm:max-w-[320px] scrollbar-thin">
+                      {(() => {
+                        const segments = getSegmentsForTab(ratioTab);
+                        if (segments.length === 0) {
+                          return <div className="text-center py-8 text-xs text-muted-soft">ไม่มีสถิติสำหรับกลุ่มนี้</div>;
+                        }
+
+                        return segments.map((seg, idx) => {
+                          const pathKey = seg.path.join('-');
+                          const isHovered = hoveredPath !== null && pathKey === hoveredPath.join('-');
+
+                          return (
+                            <div
+                              key={idx}
+                              className={`p-2 rounded-md border transition-all duration-150 flex flex-col space-y-1 text-xs cursor-pointer ${
+                                isHovered
+                                  ? 'bg-surface-soft border-primary/20 scale-[1.01] shadow-sm font-semibold'
+                                  : 'bg-transparent border-transparent hover:bg-surface-soft/40'
+                              }`}
+                              onMouseEnter={() => {
+                                setHoveredPath(seg.path);
+                                setHoveredSeg({
+                                  label: formatPathLabel(seg.path),
+                                  value: seg.value,
+                                  percentage: seg.percentage,
+                                  color: seg.color
+                                });
+                              }}
+                              onMouseLeave={() => {
+                                setHoveredPath(null);
+                                setHoveredSeg(null);
+                              }}
+                            >
+                              <div className="flex items-center space-x-2 min-w-0">
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 transition-transform duration-200"
+                                  style={{
+                                    backgroundColor: seg.color,
+                                    transform: isHovered ? 'scale(1.2)' : 'none'
+                                  }}
+                                ></span>
+                                <span className="text-ink font-bold truncate">
+                                  {formatPathLabel(seg.path)}
+                                </span>
+                              </div>
+                              <div className="font-mono text-muted text-[10px] pl-[18px]">
+                                {selectedSessionId === 'all' ? (
+                                  <span>
+                                    เฉลี่ย {Math.round(seg.value / numWeeks)}/{uniqueExpected} คน ({numWeeks} สัปดาห์: {seg.value}/{totalExpected} คน-ครั้ง) ({seg.percentage}%)
+                                  </span>
+                                ) : (
+                                  <span>
+                                    {seg.value} จากทั้งหมด {totalExpected} คน ({seg.percentage}%)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
-
-                  {/* Interactive Legends */}
-                  <div className="space-y-4 min-w-[150px]">
-                    <div 
-                      className={`p-2 rounded-md border border-hairline transition-all duration-200 ${
-                        hoveredDonutSegment === 'present' ? 'bg-success/5 border-success/30 shadow-sm' : ''
-                      }`}
-                      onMouseEnter={() => setHoveredDonutSegment('present')}
-                      onMouseLeave={() => setHoveredDonutSegment(null)}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <span className="w-2.5 h-2.5 bg-success rounded-full"></span>
-                        <span className="text-xs font-bold text-ink">มาเรียน (Present)</span>
-                      </div>
-                      <div className="text-sm font-extrabold text-success mt-1 pl-4.5">
-                        {stats.totalPresent} คน ({Math.round(presentPercent)}%)
-                      </div>
-                    </div>
-
-                    <div 
-                      className={`p-2 rounded-md border border-hairline transition-all duration-200 ${
-                        hoveredDonutSegment === 'absent' ? 'bg-error/5 border-error/30 shadow-sm' : ''
-                      }`}
-                      onMouseEnter={() => setHoveredDonutSegment('absent')}
-                      onMouseLeave={() => setHoveredDonutSegment(null)}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <span className="w-2.5 h-2.5 bg-error rounded-full"></span>
-                        <span className="text-xs font-bold text-ink">ขาดเรียน (Absent)</span>
-                      </div>
-                      <div className="text-sm font-extrabold text-error mt-1 pl-4.5">
-                        {stats.totalAbsent} คน ({Math.round(absentPercent)}%)
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
@@ -1005,15 +1402,15 @@ export default function AdminDashboard() {
                       </div>
                       <div className="flex justify-between border-t border-hairline pt-1 text-muted-soft mt-1">
                         <span>เข้าเรียนแล้ว:</span>
-                        <span className="font-bold text-success">{stats.roomStats[hoveredRoomIndex].present} คน</span>
+                        <span className="font-bold text-success">{stats.roomStats[hoveredRoomIndex].present} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
                       </div>
                       <div className="flex justify-between text-muted-soft">
                         <span>ขาดเรียน:</span>
-                        <span className="font-bold text-error">{stats.roomStats[hoveredRoomIndex].absent} คน</span>
+                        <span className="font-bold text-error">{stats.roomStats[hoveredRoomIndex].absent} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
                       </div>
                       <div className="flex justify-between text-muted-soft font-semibold border-b border-hairline pb-1 mb-1">
                         <span>ในบัญชีรายชื่อ:</span>
-                        <span>{stats.roomStats[hoveredRoomIndex].expected} คน</span>
+                        <span>{stats.roomStats[hoveredRoomIndex].expected} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
                       </div>
                       <div className="flex justify-between text-ink text-[11px] font-bold">
                         <span>สัดส่วนในกลุ่มผู้เรียนคลาสนี้:</span>
@@ -1031,7 +1428,7 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between border-b border-hairline pb-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
                   <Clock size={16} className="text-primary" />
-                  <span>ช่วงเวลาที่มีการเช็กชื่อสแกนมากที่สุด (ทุกๆ 10 นาที)</span>
+                  <span>ช่วงเวลาที่มีการเช็กชื่อสแกนมากที่สุด (ทุกๆ 1 นาที)</span>
                 </h3>
               </div>
 
@@ -1137,7 +1534,7 @@ export default function AdminDashboard() {
                       <div className="font-bold text-ink">สถิติช่วงเวลาสแกน</div>
                       <div className="text-muted">ช่วงเวลา: {stats.scanDistribution[hoveredScanIndex].time}</div>
                       <div className="font-bold text-primary border-t border-hairline pt-1 mt-1">
-                        เช็กชื่อเข้าเรียน: {stats.scanDistribution[hoveredScanIndex].count} คน
+                        เช็กชื่อเข้าเรียน: {stats.scanDistribution[hoveredScanIndex].count} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}
                       </div>
                     </div>
                   )}
@@ -1201,16 +1598,92 @@ export default function AdminDashboard() {
             </div>
           </div>
 
+          {/* List Local Filters Bar */}
+          <div className="bg-surface-soft/20 border-b border-hairline px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-bold text-muted uppercase tracking-wider text-[10px]">ตัวกรองรายชื่อ:</span>
+              
+              {/* Class Year */}
+              <div className="flex items-center space-x-1.5">
+                <span className="text-muted">ชั้นปี:</span>
+                <select
+                  value={classYear}
+                  onChange={e => setClassYear(e.target.value)}
+                  className="h-8 border border-hairline rounded-md px-2 bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer text-xs"
+                >
+                  <option value="">ทั้งหมด</option>
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>ปี {year}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Major */}
+              <div className="flex items-center space-x-1.5">
+                <span className="text-muted">สาขา:</span>
+                <select
+                  value={majorCode}
+                  onChange={e => setMajorCode(e.target.value)}
+                  className="h-8 border border-hairline rounded-md px-2 bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer text-xs uppercase"
+                >
+                  <option value="">ทั้งหมด</option>
+                  {availableMajors.map(major => (
+                    <option key={major} value={major}>{major}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Room */}
+              <div className="flex items-center space-x-1.5">
+                <span className="text-muted">ห้อง:</span>
+                <select
+                  value={room}
+                  onChange={e => setRoom(e.target.value)}
+                  className="h-8 border border-hairline rounded-md px-2 bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer text-xs"
+                >
+                  <option value="">ทั้งหมด</option>
+                  {availableRooms.map(r => (
+                    <option key={r} value={r}>ห้อง {r}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Gender */}
+              <div className="flex items-center space-x-1.5">
+                <span className="text-muted">เพศ:</span>
+                <select
+                  value={gender}
+                  onChange={e => setGender(e.target.value)}
+                  className="h-8 border border-hairline rounded-md px-2 bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer text-xs"
+                >
+                  <option value="">ทั้งหมด</option>
+                  <option value="male">ชาย</option>
+                  <option value="female">หญิง</option>
+                </select>
+              </div>
+            </div>
+
+            {(classYear || majorCode || room || gender) && (
+              <button
+                onClick={handleClearFilters}
+                className="text-xs font-bold text-primary hover:text-primary-active flex items-center space-x-1 transition-colors cursor-pointer"
+              >
+                <RotateCcw size={11} />
+                <span>ล้างตัวกรอง</span>
+              </button>
+            )}
+          </div>
+
           {/* List display */}
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto scrollbar-thin">
             {activeTab === 'present' ? (
               // Present Students List
               filteredPresentList.length === 0 ? (
                 <div className="p-12 text-center text-xs text-muted-soft">ไม่พบรายชื่อในกลุ่มตัวกรองนี้</div>
               ) : (
                 <table className="w-full text-left border-collapse min-w-[600px]">
-                  <thead>
-                    <tr className="bg-surface-soft/40 border-b border-hairline text-xs font-bold text-muted">
+                  <thead className="sticky top-0 bg-surface-soft z-10">
+                    <tr className="border-b border-hairline text-xs font-bold text-muted">
                       <th className="p-3 w-12 text-center">ลำดับ</th>
                       <th className="p-3 w-36">รหัสนักศึกษา</th>
                       <th className="p-3">ชื่อ-นามสกุล</th>
@@ -1258,8 +1731,8 @@ export default function AdminDashboard() {
                 <div className="p-12 text-center text-xs text-muted-soft">ไม่พบคนขาดเรียนในกลุ่มตัวกรองนี้</div>
               ) : (
                 <table className="w-full text-left border-collapse min-w-[600px]">
-                  <thead>
-                    <tr className="bg-surface-soft/40 border-b border-hairline text-xs font-bold text-muted">
+                  <thead className="sticky top-0 bg-surface-soft z-10">
+                    <tr className="border-b border-hairline text-xs font-bold text-muted">
                       <th className="p-3 w-12 text-center">ลำดับ</th>
                       <th className="p-3 w-36">รหัสนักศึกษา</th>
                       <th className="p-3">ชื่อ-นามสกุล</th>

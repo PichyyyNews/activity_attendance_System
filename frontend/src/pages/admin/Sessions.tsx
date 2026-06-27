@@ -125,6 +125,51 @@ export default function AdminSessions() {
     return `${cleanBaseUrl}/scan/${id}`;
   };
 
+  const handleDownloadQR = (sessionId: number) => {
+    const svgElement = document.querySelector('#qr-container svg');
+    if (!svgElement) {
+      alert('ไม่พบรูปภาพ QR Code');
+      return;
+    }
+
+    try {
+      const svgString = new XMLSerializer().serializeToString(svgElement);
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const URL = window.URL || window.webkitURL || window;
+      const blobURL = URL.createObjectURL(svgBlob);
+      
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 800;
+        canvas.height = 800;
+        const context = canvas.getContext('2d');
+        if (context) {
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, 800, 800);
+          context.drawImage(image, 0, 0, 800, 800);
+          
+          const png = canvas.toDataURL('image/png');
+          const downloadLink = document.createElement('a');
+          const session = sessions.find((s) => s.id === sessionId);
+          const fileName = session 
+            ? `QR_Week_${session.week_number}.png` 
+            : 'qrcode.png';
+          downloadLink.href = png;
+          downloadLink.download = fileName;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          URL.revokeObjectURL(blobURL);
+        }
+      };
+      image.src = blobURL;
+    } catch (err) {
+      console.error('Error downloading QR code:', err);
+      alert('เกิดข้อผิดพลาดในการดาวน์โหลดรูปภาพ QR Code');
+    }
+  };
+
   const handleToggleActive = async (id: number, currentStatus: number) => {
     try {
       await axios.post(`/api/sessions/${id}/toggle`, { is_active: currentStatus === 1 ? 0 : 1 });
@@ -733,7 +778,7 @@ export default function AdminSessions() {
             </p>
 
             {/* QR Wrapper (Embedded UI Card Chrome) */}
-            <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-[0_4px_12px_rgba(0,0,0,0.03)] flex justify-center items-center w-full aspect-square max-w-[240px] mb-6">
+            <div id="qr-container" className="bg-canvas border border-hairline rounded-lg p-5 shadow-[0_4px_12px_rgba(0,0,0,0.03)] flex justify-center items-center w-full aspect-square max-w-[240px] mb-6">
               <QRCodeSVG value={qrUrl(showQR)} size={200} level="H" includeMargin={false} />
             </div>
 
@@ -749,9 +794,7 @@ export default function AdminSessions() {
             </div>
 
             <button
-              onClick={() => {
-                alert('ระบบกำลังดาวน์โหลดรูปภาพคิวอาร์โค้ดเป็นไฟล์ PNG...');
-              }}
+              onClick={() => handleDownloadQR(showQR)}
               className="w-full py-2.5 px-4 bg-primary hover:bg-primary-active text-white text-xs font-semibold rounded-md flex items-center justify-center space-x-2 transition-colors cursor-pointer"
             >
               <Download size={14} />

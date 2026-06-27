@@ -15,10 +15,7 @@ function Footer() {
     <footer className="bg-surface-dark text-on-dark-soft border-t border-surface-dark-elevated">
       <div className="max-w-7xl mx-auto px-6 py-6 flex flex-col sm:flex-row justify-between items-center text-xs text-[#898989] space-y-3 sm:space-y-0">
         <div className="flex items-center space-x-2 text-white font-extrabold text-sm tracking-tight">
-          <div className="w-4 h-4 bg-white rounded-full flex items-center justify-center">
-            <div className="w-2 h-2 bg-surface-dark rounded-full"></div>
-          </div>
-          <span>attendance.io</span>
+          <span>AAS</span>
         </div>
         <p className="text-[#a1a1aa]">© {new Date().getFullYear()} ระบบเช็กชื่อและบันทึกประวัติการเข้าเรียน</p>
         <div className="flex items-center space-x-6">

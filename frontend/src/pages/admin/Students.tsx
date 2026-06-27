@@ -560,10 +560,14 @@ export default function AdminStudents() {
                     onChange={(e) => setClassYear(e.target.value)}
                     className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary"
                   >
-                    <option value="1">ปี 1</option>
-                    <option value="2">ปี 2</option>
-                    <option value="3">ปี 3</option>
-                    <option value="4">ปี 4</option>
+                    {uniqueYears.map((y) => (
+                      <option key={y} value={y}>
+                        ปี {y}
+                      </option>
+                    ))}
+                    {uniqueYears.length === 0 && (
+                      <option value="">ไม่มีข้อมูลชั้นปี (กรุณาไปเพิ่มด้านบน)</option>
+                    )}
                   </select>
                 </div>
 
@@ -574,13 +578,13 @@ export default function AdminStudents() {
                     onChange={(e) => setMajorCode(e.target.value)}
                     className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary"
                   >
-                    {majors.map((m) => (
-                      <option key={m.id} value={m.major_code}>
-                        {m.major_code}
+                    {uniqueMajors.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
                       </option>
                     ))}
-                    {majors.length === 0 && (
-                      <option value="">ไม่มีข้อมูลสาขา (กรุณาไปเพิ่มในตั้งค่า)</option>
+                    {uniqueMajors.length === 0 && (
+                      <option value="">ไม่มีข้อมูลสาขา (กรุณาไปเพิ่มด้านบน)</option>
                     )}
                   </select>
                 </div>
@@ -592,10 +596,14 @@ export default function AdminStudents() {
                     onChange={(e) => setRoom(e.target.value)}
                     className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary"
                   >
-                    <option value="1">ห้อง 1</option>
-                    <option value="2">ห้อง 2</option>
-                    <option value="3">ห้อง 3</option>
-                    <option value="4">ห้อง 4</option>
+                    {uniqueRooms.map((r) => (
+                      <option key={r} value={r}>
+                        ห้อง {r}
+                      </option>
+                    ))}
+                    {uniqueRooms.length === 0 && (
+                      <option value="">ไม่มีข้อมูลห้องเรียน (กรุณาไปเพิ่มด้านบน)</option>
+                    )}
                   </select>
                 </div>
               </div>
@@ -977,10 +985,11 @@ export default function AdminStudents() {
                     onChange={(e) => setEditClassYear(e.target.value)}
                     className="w-full h-10 border border-hairline rounded-md px-2 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
                   >
-                    <option value="1">ปี 1</option>
-                    <option value="2">ปี 2</option>
-                    <option value="3">ปี 3</option>
-                    <option value="4">ปี 4</option>
+                    {uniqueYears.map((y) => (
+                      <option key={y} value={y}>
+                        ปี {y}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -991,9 +1000,9 @@ export default function AdminStudents() {
                     onChange={(e) => setEditMajorCode(e.target.value)}
                     className="w-full h-10 border border-hairline rounded-md px-2 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
                   >
-                    {majors.map((m) => (
-                      <option key={m.id} value={m.major_code}>
-                        {m.major_code}
+                    {uniqueMajors.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
                       </option>
                     ))}
                   </select>
@@ -1006,10 +1015,11 @@ export default function AdminStudents() {
                     onChange={(e) => setEditRoom(e.target.value)}
                     className="w-full h-10 border border-hairline rounded-md px-2 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
                   >
-                    <option value="1">ห้อง 1</option>
-                    <option value="2">ห้อง 2</option>
-                    <option value="3">ห้อง 3</option>
-                    <option value="4">ห้อง 4</option>
+                    {uniqueRooms.map((r) => (
+                      <option key={r} value={r}>
+                        ห้อง {r}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

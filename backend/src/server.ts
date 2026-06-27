@@ -237,6 +237,93 @@ app.post('/api/settings', (req, res) => {
   }
 });
 
+app.post('/api/settings/sync-all', async (req, res) => {
+  try {
+    const stmtSettings = db.prepare('SELECT * FROM settings WHERE id = 1');
+    const settings = stmtSettings.get() as { sheet_id: string; credentials_json: string } | undefined;
+
+    if (!settings || !settings.sheet_id || !settings.credentials_json) {
+      return res.status(400).json({ error: 'กรุณาตั้งค่า Google Sheets API และ Spreadsheet ID ในระบบก่อน' });
+    }
+
+    const rawSheetId = settings.sheet_id;
+    const sheetIdMatch = rawSheetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const sheetId = sheetIdMatch ? sheetIdMatch[1] : rawSheetId.trim();
+
+    const credentials = JSON.parse(settings.credentials_json);
+    if (credentials.private_key) {
+      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+    }
+    const auth = google.auth.fromJSON(credentials) as any;
+    auth.scopes = ['https://www.googleapis.com/auth/spreadsheets'];
+
+    const sheets = google.sheets({ version: 'v4', auth: auth as any });
+
+    // Fetch all attendance records joined with session info
+    const attendances = db.prepare(`
+      SELECT a.*, s.week_number, s.title as session_title
+      FROM attendances a 
+      JOIN sessions s ON a.session_id = s.id 
+      ORDER BY s.week_number ASC, a.attended_at ASC
+    `).all() as any[];
+
+    // Clear existing data in A:J
+    try {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: 'A:J',
+      });
+    } catch (clearErr: any) {
+      console.error('Error clearing sheet:', clearErr);
+      return res.status(500).json({ error: 'ไม่สามารถล้างข้อมูลใน Google Sheets ได้: ' + (clearErr.message || clearErr) });
+    }
+
+    // Build values array
+    const values = [
+      [
+        'สัปดาห์ที่',
+        'หัวข้อกิจกรรม',
+        'รหัสนักศึกษา',
+        'คำนำหน้า',
+        'ชื่อจริง',
+        'นามสกุล',
+        'ชั้นปี',
+        'สาขาวิชา',
+        'ห้องเรียน',
+        'เวลาเช็กชื่อ'
+      ]
+    ];
+
+    attendances.forEach(att => {
+      values.push([
+        att.week_number,
+        att.session_title,
+        att.student_id,
+        att.prefix || '',
+        att.first_name,
+        att.last_name,
+        att.class_year,
+        att.major_code,
+        att.room,
+        new Date(att.attended_at || new Date()).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
+      ]);
+    });
+
+    // Write all values
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: 'A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values }
+    });
+
+    res.json({ success: true, count: attendances.length });
+  } catch (error: any) {
+    console.error('Failed to sync all to Google Sheets:', error);
+    res.status(500).json({ error: 'การเขียนข้อมูลลง Google Sheets ล้มเหลว: ' + (error.message || error) });
+  }
+});
+
 // Majors CRUD
 app.get('/api/majors', (req, res) => {
   try {
@@ -743,7 +830,7 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
               SELECT student_id FROM attendances WHERE session_id = ?
             )
         `);
-        const sessionAbsents = sessionAbsentStmt.all(...filterParams, session.id, session.week_number, session.title, session.id) as any[];
+        const sessionAbsents = sessionAbsentStmt.all(session.id, session.week_number, session.title, ...filterParams, session.id) as any[];
         absentList.push(...sessionAbsents);
       }
       absentList.sort((a, b) => a.student_id.localeCompare(b.student_id) || a.week_number - b.week_number);
@@ -856,8 +943,7 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
         const d = new Date(p.attended_at);
         if (isNaN(d.getTime())) return;
         const { hour, minute } = getBangkokHourAndMinute(d);
-        const roundedMinutes = Math.floor(minute / 10) * 10;
-        const key = `${hour.toString().padStart(2, '0')}:${roundedMinutes.toString().padStart(2, '0')} น.`;
+        const key = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} น.`;
         timeMap[key] = (timeMap[key] || 0) + 1;
       } catch (e) {
         // Ignore

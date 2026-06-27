@@ -9,6 +9,11 @@ export default function AdminSettings() {
   const [message, setMessage] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Sync all states
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncError, setSyncError] = useState('');
+
   useEffect(() => {
     // Fetch Sheets Config
     axios.get('/api/settings').then(res => {
@@ -35,6 +40,36 @@ export default function AdminSettings() {
       setMessage('');
       setErrorMsg('');
     }, 4000);
+  };
+
+  const handleSyncAll = async () => {
+    const confirmSync = window.confirm(
+      '⚠️ คำเตือน: ข้อมูลเดิมทั้งหมดบน Google Sheets (คอลัมน์ A ถึง J) จะถูกลบออกและเขียนทับด้วยข้อมูลการเช็กชื่อที่มีอยู่ในระบบทั้งหมดใหม่ตั้งแต่เริ่มต้น การทำงานนี้อาจใช้เวลาสักครู่ขึ้นอยู่กับปริมาณข้อมูล\n\nคุณแน่ใจหรือไม่ว่าต้องการดำเนินการต่อ?'
+    );
+
+    if (!confirmSync) return;
+
+    setSyncLoading(true);
+    setSyncMessage('');
+    setSyncError('');
+
+    try {
+      const res = await axios.post('/api/settings/sync-all');
+      if (res.data && res.data.success) {
+        setSyncMessage(`เขียนข้อมูลลง Google Sheets ใหม่ทั้งหมดเสร็จสมบูรณ์! (รวมทั้งหมด ${res.data.count} รายการ)`);
+      } else {
+        setSyncError('การเขียนข้อมูลลง Google Sheets ล้มเหลว');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSyncError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+      setSyncLoading(false);
+      setTimeout(() => {
+        setSyncMessage('');
+        setSyncError('');
+      }, 6000);
+    }
   };
 
   return (
@@ -137,6 +172,56 @@ export default function AdminSettings() {
                 <Save size={15} />
                 <span>บันทึกข้อมูลตั้งค่า</span>
               </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Google Sheets Rewrite Card */}
+      <div className="bg-canvas border border-hairline rounded-lg overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-6 border-b border-hairline flex items-center space-x-3">
+          <ShieldAlert size={20} className="text-error" />
+          <h2 className="text-lg font-semibold text-ink tracking-tight">
+            ล้างและเขียนข้อมูลลง Google Sheets ใหม่ทั้งหมด
+          </h2>
+        </div>
+
+        <div className="p-4 sm:p-6 md:p-8 space-y-4">
+          <p className="text-sm text-muted leading-relaxed">
+            เขียนข้อมูลการสแกนและเช็กชื่อนักศึกษาทั้งหมดจากฐานข้อมูล SQLite ลงใน Google Sheets ใหม่ทั้งหมด โดยระบบจะทำการเคลียร์ข้อมูลเดิมในสเปรดชีต (คอลัมน์ A ถึง J) และเขียนทับข้อมูลใหม่ทั้งหมดตั้งแต่สัปดาห์แรกจนถึงปัจจุบัน
+          </p>
+
+          {syncMessage && (
+            <div className="flex items-center space-x-2.5 p-4 rounded-md bg-success/15 border border-success/30 text-success text-sm font-semibold animate-in fade-in duration-200">
+              <Check size={16} />
+              <span>{syncMessage}</span>
+            </div>
+          )}
+
+          {syncError && (
+            <div className="flex items-center space-x-2.5 p-4 rounded-md bg-error/15 border border-error/30 text-error text-sm font-semibold animate-in fade-in duration-200">
+              <ShieldAlert size={16} />
+              <span>{syncError}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-surface-soft border-t border-hairline px-4 sm:px-6 py-4 flex items-center justify-between">
+          <div className="text-xs text-muted-soft">
+            *กรุณาตรวจสอบว่าข้อมูล Spreadsheet ID และ Credentials JSON บันทึกถูกต้องแล้วก่อนเริ่มทำรายการ
+          </div>
+          <button
+            onClick={handleSyncAll}
+            disabled={syncLoading}
+            className="inline-flex items-center space-x-2 bg-error hover:bg-error-active disabled:bg-surface-strong text-white px-5 py-2.5 rounded-md text-sm font-semibold transition-all shadow-sm active:scale-98 cursor-pointer"
+          >
+            {syncLoading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-canvas border-t-transparent rounded-full animate-spin"></div>
+                <span>กำลังบันทึกข้อมูลลง Google Sheet...</span>
+              </>
+            ) : (
+              <span>ล้างและเขียนข้อมูลใหม่ทั้งหมด</span>
             )}
           </button>
         </div>
