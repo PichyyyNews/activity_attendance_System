@@ -197,14 +197,14 @@ function Tooltip({ info }: { info: TooltipInfo }) {
       style={{ left: pos.left, top: pos.top }}
     >
       <div className="font-bold text-ink mb-0.5">{content.studentName}</div>
-      <div className="text-muted">สัปดาห์ที่ {content.weekNumber} — {content.title}</div>
+      <div className="text-muted">ครั้งที่ {content.weekNumber} — {content.title}</div>
       <div className="text-muted">{formatDate(content.date)}</div>
       <div className={`mt-1 font-semibold flex items-center gap-1 ${
         content.status === 'present' ? 'text-green-600' :
         content.status === 'absent' ? 'text-red-500' : 'text-slate-400'
       }`}>
-        {content.status === 'present' ? <><CheckCircle2 size={11} /> มาเรียน</> :
-         content.status === 'absent' ? <><XCircle size={11} /> ขาดเรียน</> :
+        {content.status === 'present' ? <><CheckCircle2 size={11} /> เข้ากิจกรรม</> :
+         content.status === 'absent' ? <><XCircle size={11} /> ไม่เข้ากิจกรรม</> :
          <><Minus size={11} /> ไม่มีข้อมูล</>}
         {content.status === 'present' && content.attendedAt && (
           <span className="text-muted font-normal ml-1">
@@ -330,11 +330,11 @@ export default function AdminAttendanceList() {
 
   // Legend stripe bg for streak
   const legendItems = [
-    { label: 'ขาด', color: '#fca5a5', border: '#f87171' },
-    { label: 'ขาด (มีหมายเหตุ)', color: '#ffedd5', border: '#f97316' },
-    { label: 'มา ×1', color: '#86efac', border: '#4ade80' },
-    { label: 'มา ×2', color: '#22c55e', border: '#16a34a' },
-    { label: 'มา ×3+', color: '#15803d', border: '#15803d' },
+    { label: 'ไม่เข้ากิจกรรม', color: '#fca5a5', border: '#f87171' },
+    { label: 'ไม่เข้ากิจกรรม (มีหมายเหตุ)', color: '#ffedd5', border: '#f97316' },
+    { label: 'เข้ากิจกรรม ×1', color: '#86efac', border: '#4ade80' },
+    { label: 'เข้ากิจกรรม ×2', color: '#22c55e', border: '#16a34a' },
+    { label: 'เข้ากิจกรรม ×3+', color: '#15803d', border: '#15803d' },
   ];
 
   return (
@@ -344,9 +344,9 @@ export default function AdminAttendanceList() {
         <div>
           <h1 className="text-2xl md:text-4xl font-semibold text-ink tracking-tight flex items-center space-x-2">
             <ClipboardCheck className="w-8 h-8 text-primary" />
-            <span>ตารางเช็กชื่อเข้าเรียน</span>
+            <span>ตารางเช็กชื่อเข้ากิจกรรม</span>
           </h1>
-          <p className="text-muted text-sm mt-1">ดูประวัติการเข้าเรียนรายชั้นเรียน แบบ Heatmap รายสัปดาห์</p>
+          <p className="text-muted text-sm mt-1">ดูประวัติการเข้ากิจกรรมรายกลุ่มเรียน แบบ Heatmap รายครั้ง</p>
         </div>
         {/* Legend */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -406,7 +406,7 @@ export default function AdminAttendanceList() {
                 <span className="font-semibold text-ink">{tabFullLabel(activeMajor)}</span>
                 {heatmapData && (
                   <span className="text-muted-soft">
-                    · {filteredStudents.length} คน · {sessions.length} สัปดาห์
+                    · {filteredStudents.length} คน · {sessions.length} ครั้ง
                   </span>
                 )}
               </div>
@@ -444,7 +444,7 @@ export default function AdminAttendanceList() {
                       <div
                         key={session.id}
                         className="w-5 text-center shrink-0"
-                        title={`สัปดาห์ ${session.week_number}: ${session.title} — ${formatDate(session.date)}`}
+                        title={`ครั้งที่ ${session.week_number}: ${session.title} — ${formatDate(session.date)}`}
                       >
                         <div className="text-[9px] font-bold text-muted leading-tight">{session.week_number}</div>
                       </div>
@@ -512,7 +512,7 @@ export default function AdminAttendanceList() {
                 <div className="border-t border-hairline px-4 py-2.5 bg-surface-soft/40 flex items-center gap-4 text-[11px] text-muted overflow-x-auto">
                   <div className="sticky left-0 w-72 shrink-0 flex items-center gap-3 font-bold text-ink bg-surface-soft/40">
                     <span className="w-5" />
-                    <span>สรุปรายสัปดาห์</span>
+                    <span>สรุปรายครั้ง</span>
                   </div>
                   <div className="flex gap-[3px]">
                     {sessions.map(session => {
@@ -525,7 +525,7 @@ export default function AdminAttendanceList() {
                           key={session.id}
                           className="w-5 h-5 rounded-[3px] shrink-0 flex items-center justify-center cursor-default"
                           style={{ backgroundColor: color + '30', border: `1.5px solid ${color}` }}
-                          title={`ส${session.week_number}: ${presentCount}/${total} คน (${pct}%)`}
+                          title={`ค${session.week_number}: ${presentCount}/${total} คน (${pct}%)`}
                         >
                           <span className="text-[7px] font-bold" style={{ color }}>
                             {pct}
@@ -562,7 +562,7 @@ export default function AdminAttendanceList() {
               <div className="bg-surface-soft p-3.5 rounded-lg border border-hairline space-y-1 text-xs">
                 <div><span className="font-bold text-ink">นักศึกษา:</span> {editingCell.student.prefix}{editingCell.student.first_name} {editingCell.student.last_name}</div>
                 <div><span className="font-bold text-ink">รหัสนักศึกษา:</span> <span className="font-mono">{editingCell.student.student_id}</span></div>
-                <div><span className="font-bold text-ink">สัปดาห์กิจกรรม:</span> สัปดาห์ที่ {editingCell.session.week_number} ({editingCell.session.title})</div>
+                <div><span className="font-bold text-ink">ครั้งที่กิจกรรม:</span> ครั้งที่ {editingCell.session.week_number} ({editingCell.session.title})</div>
                 <div><span className="font-bold text-ink">วันที่จัดกิจกรรม:</span> {formatDate(editingCell.session.date)}</div>
               </div>
 
@@ -580,7 +580,7 @@ export default function AdminAttendanceList() {
                     }`}
                   >
                     <CheckCircle2 size={16} />
-                    <span>มาเรียน (Present)</span>
+                    <span>เข้ากิจกรรม (Present)</span>
                   </button>
                   <button
                     type="button"
@@ -592,7 +592,7 @@ export default function AdminAttendanceList() {
                     }`}
                   >
                     <XCircle size={16} />
-                    <span>ขาดเรียน (Absent)</span>
+                    <span>ไม่เข้ากิจกรรม (Absent)</span>
                   </button>
                 </div>
               </div>

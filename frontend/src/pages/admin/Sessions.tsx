@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
 import { Plus, QrCode, Calendar as CalendarIcon, Clipboard, Check, X, Download, Edit2, Trash2 } from 'lucide-react';
@@ -243,7 +243,7 @@ export default function AdminSessions() {
       setSelectedSessionId(null);
       fetchSessions();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูลคาบเรียน');
+      setError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูลคาบกิจกรรม');
     }
   };
 
@@ -321,14 +321,14 @@ export default function AdminSessions() {
   };
 
   const handleDeleteSession = async (id: number) => {
-    if (!confirm('⚠️ คำเตือน: การลบคาบกิจกรรมสัปดาห์นี้จะลบข้อมูลประวัติการเช็กชื่อของนักศึกษาทั้งหมดในสัปดาห์นี้ออกจากฐานข้อมูลด้วย! คุณแน่ใจหรือไม่ที่จะลบคาบเรียนนี้?')) return;
+    if (!confirm('⚠️ คำเตือน: การลบคาบกิจกรรมครั้งนี้จะลบข้อมูลประวัติการเช็กชื่อของนักศึกษาทั้งหมดในครั้งนี้ออกจากฐานข้อมูลด้วย! คุณแน่ใจหรือไม่ที่จะลบคาบกิจกรรมนี้?')) return;
     
     try {
       await axios.delete(`/api/sessions/${id}`);
       fetchSessions();
     } catch (err) {
       console.error('Error deleting session:', err);
-      alert('ไม่สามารถลบคาบเรียนได้');
+      alert('ไม่สามารถลบคาบกิจกรรมได้');
     }
   };
 
@@ -341,7 +341,7 @@ export default function AdminSessions() {
             จัดการคาบกิจกรรม
           </h1>
           <p className="text-muted text-sm md:text-base mt-2">
-            สร้างคาบเรียนรายสัปดาห์ ผลิตคิวอาร์โค้ดเพื่อให้นักศึกษาสแกน และคัดลอกลิงก์การลงทะเบียน
+            สร้างคาบกิจกรรมรายครั้ง ผลิตคิวอาร์โค้ดเพื่อให้นักศึกษาสแกน และคัดลอกลิงก์การลงทะเบียน
           </p>
         </div>
         <div>
@@ -350,7 +350,7 @@ export default function AdminSessions() {
             className="w-full sm:w-auto bg-primary hover:bg-primary-active text-white px-5 py-2.5 rounded-md text-sm font-semibold flex items-center justify-center space-x-2 transition-all duration-200 shadow-sm active:scale-98 cursor-pointer"
           >
             <Plus size={16} />
-            <span>เพิ่มคาบเรียนใหม่</span>
+            <span>เพิ่มคาบกิจกรรมใหม่</span>
           </button>
         </div>
       </div>
@@ -358,12 +358,12 @@ export default function AdminSessions() {
       {/* Desktop Layout: Table */}
       <div className="hidden md:block bg-canvas border border-hairline rounded-lg overflow-hidden">
         {sessions.length === 0 ? (
-          <div className="p-12 text-center text-muted-soft">ไม่มีคาบกิจกรรมในระบบ กรุณาคลิกปุ่มเพื่อสร้างคาบเรียนใหม่</div>
+          <div className="p-12 text-center text-muted-soft">ไม่มีคาบกิจกรรมในระบบ กรุณาคลิกปุ่มเพื่อสร้างคาบกิจกรรมใหม่</div>
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-soft border-b border-hairline">
-                <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted">สัปดาห์</th>
+                <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted">ครั้งที่</th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted">หัวข้อกิจกรรม</th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted">วันที่จัดกิจกรรม</th>
                 <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted">สถานะเช็กชื่อ</th>
@@ -376,7 +376,7 @@ export default function AdminSessions() {
                 const isClosed = session.is_active === 0 || isExpired;
                 return (
                   <tr key={session.id} className="hover:bg-surface-soft/40 transition-colors">
-                    <td className="p-4 font-bold text-ink">สัปดาห์ที่ {session.week_number}</td>
+                    <td className="p-4 font-bold text-ink">ครั้งที่ {session.week_number}</td>
                     <td className="p-4 text-sm font-semibold text-ink">{session.title}</td>
                     <td className="p-4 text-sm text-body">{formatThaiDate(session.date)}</td>
                     <td className="p-4 text-sm">
@@ -387,7 +387,7 @@ export default function AdminSessions() {
                             ? 'bg-error/10 text-error border-error/20 hover:bg-error/15' 
                             : 'bg-success/10 text-success border-success/20 hover:bg-success/15'
                         }`}
-                        title="คลิกเพื่อ เปิด/ปิด การเช็กชื่อสัปดาห์นี้"
+                        title="คลิกเพื่อ เปิด/ปิด การเช็กชื่อครั้งนี้"
                       >
                         {isClosed ? <X size={13} /> : <Check size={13} />}
                         <span>{isClosed ? 'ปิดรับเช็กชื่อ' : 'เปิดรับเช็กชื่อ'}</span>
@@ -421,14 +421,14 @@ export default function AdminSessions() {
                       <button
                         onClick={() => handleOpenEdit(session)}
                         className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-hairline bg-canvas hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
-                        title="แก้ไขคาบเรียน"
+                        title="แก้ไขคาบกิจกรรม"
                       >
                         <Edit2 size={13} />
                       </button>
                       <button
                         onClick={() => handleDeleteSession(session.id)}
                         className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-error/20 bg-canvas hover:bg-error/10 text-muted hover:text-error transition-colors cursor-pointer"
-                        title="ลบคาบเรียน"
+                        title="ลบคาบกิจกรรม"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -444,7 +444,7 @@ export default function AdminSessions() {
       {/* Mobile Layout: Stacked Cards */}
       <div className="md:hidden space-y-4">
         {sessions.length === 0 ? (
-          <div className="bg-surface-card border border-hairline p-8 text-center text-muted-soft rounded-lg">ไม่มีคาบกิจกรรมในระบบ กรุณาคลิกปุ่มเพื่อสร้างคาบเรียนใหม่</div>
+          <div className="bg-surface-card border border-hairline p-8 text-center text-muted-soft rounded-lg">ไม่มีคาบกิจกรรมในระบบ กรุณาคลิกปุ่มเพื่อสร้างคาบกิจกรรมใหม่</div>
         ) : (
           sessions.map((session) => {
             const isExpired = session.close_at && new Date() > new Date(session.close_at);
@@ -455,7 +455,7 @@ export default function AdminSessions() {
                   <div className="space-y-1">
                     <div className="flex items-center space-x-2">
                       <span className="inline-block text-[11px] bg-primary text-white font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
-                        สัปดาห์ที่ {session.week_number}
+                        ครั้งที่ {session.week_number}
                       </span>
                       <button
                         onClick={() => handleToggleActive(session.id, session.is_active)}
@@ -546,10 +546,10 @@ export default function AdminSessions() {
 
             <div>
               <h2 className="text-xl font-bold text-ink tracking-tight">
-                {modalMode === 'add' ? 'เพิ่มคาบเรียนกิจกรรมใหม่' : 'แก้ไขคาบเรียนกิจกรรม'}
+                {modalMode === 'add' ? 'เพิ่มคาบกิจกรรมใหม่' : 'แก้ไขคาบกิจกรรม'}
               </h2>
               <p className="text-xs text-muted mt-1">
-                {modalMode === 'add' ? 'กรอกข้อมูลรายละเอียดสัปดาห์ กิจกรรม และระบุวันที่จัดกิจกรรม' : 'ปรับเปลี่ยนรายละเอียดสัปดาห์ หัวข้อกิจกรรม หรือเวลาปิดรับเช็กชื่อ'}
+                {modalMode === 'add' ? 'กรอกข้อมูลรายละเอียดครั้งที่ กิจกรรม และระบุวันที่จัดกิจกรรม' : 'ปรับเปลี่ยนรายละเอียดครั้งที่ หัวข้อกิจกรรม หรือเวลาปิดรับเช็กชื่อ'}
               </p>
             </div>
 
@@ -561,7 +561,7 @@ export default function AdminSessions() {
 
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">สัปดาห์ที่ (ตัวเลข เท่านั้น)</label>
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ครั้งที่ (ตัวเลข เท่านั้น)</label>
                 <input 
                   type="number"
                   required
@@ -574,7 +574,7 @@ export default function AdminSessions() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">หัวข้อคาบเรียน/กิจกรรม</label>
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">หัวข้อคาบกิจกรรม/กิจกรรม</label>
                 <input 
                   type="text"
                   required
@@ -749,7 +749,7 @@ export default function AdminSessions() {
                 type="submit"
                 className="px-4 py-2 bg-primary hover:bg-primary-active text-white rounded-md text-xs font-semibold transition-colors cursor-pointer"
               >
-                {modalMode === 'add' ? 'สร้างคาบเรียน' : 'บันทึกแก้ไข'}
+                {modalMode === 'add' ? 'สร้างคาบกิจกรรม' : 'บันทึกแก้ไข'}
               </button>
             </div>
           </form>
@@ -771,13 +771,13 @@ export default function AdminSessions() {
 
             {/* Modal Title */}
             <span className="text-[11px] bg-surface-soft border border-hairline text-muted font-bold px-2 py-0.5 rounded uppercase tracking-wider mb-2">
-              QR Code ประจำสัปดาห์
+              QR Code ประจำครั้ง
             </span>
             <h2 className="text-lg font-bold text-ink text-center mb-1">
               {sessions.find((s) => s.id === showQR)?.title}
             </h2>
             <p className="text-xs text-muted mb-6 text-center">
-              สัปดาห์ที่ {sessions.find((s) => s.id === showQR)?.week_number} • สแกนเพื่อลงทะเบียนเช็กชื่อเข้าร่วมกิจกรรม
+              ครั้งที่ {sessions.find((s) => s.id === showQR)?.week_number} • สแกนเพื่อเช็กชื่อเข้าร่วมกิจกรรม
             </p>
 
             {/* QR Wrapper (Embedded UI Card Chrome) */}

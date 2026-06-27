@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
@@ -50,7 +50,7 @@ export default function UserScanForm() {
           const isExpired = session.close_at && nowServer > new Date(session.close_at);
           if (session.is_active === 0) {
             setIsSessionClosed(true);
-            setSessionClosedReason('ผู้ดูแลระบบได้ปิดระบบการสแกนเช็กชื่อสำหรับกิจกรรมสัปดาห์นี้แล้ว');
+            setSessionClosedReason('ผู้ดูแลระบบได้ปิดระบบการสแกนเช็กชื่อสำหรับกิจกรรมครั้งนี้แล้ว');
           } else if (isExpired) {
             setIsSessionClosed(true);
             setSessionClosedReason('หมดเวลาการเช็กชื่อเข้าร่วมกิจกรรมในสัปดาห์นี้แล้ว (ระบบปิดรับอัตโนมัติ)');
@@ -194,7 +194,7 @@ export default function UserScanForm() {
           </div>
           <div className="space-y-2">
             <h1 className="text-2xl font-bold text-ink tracking-tight">เช็กชื่อสำเร็จแล้ว!</h1>
-            <p className="text-muted text-sm">ระบบได้บันทึกข้อมูลการเข้าเรียนกิจกรรมสัปดาห์ที่ {sessionInfo?.week_number} เรียบร้อยแล้ว</p>
+            <p className="text-muted text-sm">ระบบได้บันทึกข้อมูลการเข้ากิจกรรมครั้งที่ {sessionInfo?.week_number} เรียบร้อยแล้ว</p>
           </div>
 
           <div className="bg-surface-soft border border-hairline rounded-md p-4 text-left text-sm space-y-2.5">
@@ -240,7 +240,7 @@ export default function UserScanForm() {
             </div>
             <div className="space-y-1">
               <span className="inline-block text-[10px] sm:text-[11px] bg-primary text-white font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">
-                สัปดาห์ที่ {sessionInfo?.week_number || ''} {sessionInfo ? `(${sessionInfo.title})` : ''}
+                ครั้งที่ {sessionInfo?.week_number || ''} {sessionInfo ? `(${sessionInfo.title})` : ''}
               </span>
               <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight mt-1">เช็กชื่อเข้าร่วมกิจกรรม</h1>
               {sessionInfo && sessionInfo.close_at && !isSessionClosed && (

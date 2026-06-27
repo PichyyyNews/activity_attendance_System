@@ -204,7 +204,7 @@ function AdminLayout() {
 
   const navItems = [
     { to: '/admin', label: 'ภาพรวม', icon: LayoutDashboard, end: true },
-    { to: '/admin/sessions', label: 'คาบเรียน', icon: Calendar },
+    { to: '/admin/sessions', label: 'คาบกิจกรรม', icon: Calendar },
     { to: '/admin/students', label: 'รายชื่อนักเรียน', icon: Users },
     { to: '/admin/attendance', label: 'ตารางเช็กชื่อ', icon: ClipboardCheck },
     { to: '/admin/settings', label: 'ตั้งค่าระบบ', icon: Settings },

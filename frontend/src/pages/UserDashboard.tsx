@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Search, Calendar, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
@@ -116,7 +116,7 @@ export default function UserDashboard() {
             ตรวจสอบการเช็กชื่อ
           </h1>
           <p className="text-muted text-sm max-w-sm mx-auto">
-            กรอกรหัสนักศึกษาของคุณเพื่อค้นหาประวัติการสแกนเช็กชื่อรายสัปดาห์และสถิติภาพรวมทั้งหมด
+            กรอกรหัสนักศึกษาของคุณเพื่อค้นหาประวัติการสแกนเช็กชื่อรายครั้งและสถิติภาพรวมทั้งหมด
           </p>
         </div>
 
@@ -200,7 +200,7 @@ export default function UserDashboard() {
                 <div className="bg-surface-card border border-hairline p-5 rounded-lg">
                   <div className="flex items-center space-x-2 text-xs font-semibold text-muted uppercase tracking-wider mb-2">
                     <AlertTriangle size={14} className="text-error" />
-                    <span>ขาดเรียน</span>
+                    <span>ไม่เข้ากิจกรรม</span>
                   </div>
                   <p className="text-3xl font-black text-ink">{missedCount} คาบ</p>
                 </div>
@@ -209,7 +209,7 @@ export default function UserDashboard() {
               {/* Progress Rate Indicator */}
               <div className="space-y-2 pt-2">
                 <div className="flex justify-between items-center text-xs font-semibold">
-                  <span className="text-muted">อัตราการเข้าเรียน</span>
+                  <span className="text-muted">อัตราการเข้ากิจกรรม</span>
                   <span className="text-ink font-bold">{rate}%</span>
                 </div>
                 <div className="w-full bg-surface-soft border border-hairline rounded-full h-2">
@@ -217,7 +217,7 @@ export default function UserDashboard() {
                 </div>
                 <p className="text-[10px] text-muted-soft">
                   {rate >= 80 
-                    ? 'สถิติยอดเยี่ยม! อัตราเข้าเรียนของคุณผ่านเกณฑ์ขั้นต่ำ 80%' 
+                    ? 'สถิติยอดเยี่ยม! อันตราการเข้ากิจกรรมของคุณผ่านเกณฑ์ขั้นต่ำ 80%' 
                     : 'อัตราเช็กชื่อต่ำกว่าเกณฑ์ 80% (กรุณาเข้ากิจกรรมถัดไปเพื่อป้องกันชั่วโมงไม่ครบ)'}
                 </p>
               </div>
@@ -228,7 +228,7 @@ export default function UserDashboard() {
               <div className="px-5 py-4 border-b border-hairline bg-surface-soft">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-ink flex items-center space-x-1.5">
                   <Calendar size={13} />
-                  <span>ประวัติคาบเรียนทั้งหมด</span>
+                  <span>ประวัติคาบกิจกรรมทั้งหมด</span>
                 </h3>
               </div>
               <div className="divide-y divide-hairline">
@@ -238,18 +238,18 @@ export default function UserDashboard() {
                   timeline.map((item, idx) => (
                     <div key={idx} className="p-4 flex items-center justify-between text-sm hover:bg-surface-soft/20 transition-colors">
                       <div className="space-y-0.5">
-                        <span className="text-[10px] text-muted-soft font-bold uppercase">สัปดาห์ที่ {item.week}</span>
+                        <span className="text-[10px] text-muted-soft font-bold uppercase">ครั้งที่ {item.week}</span>
                         <h4 className="font-semibold text-ink">{item.title}</h4>
                         <p className="text-xs text-muted-soft">{formatThaiDate(item.date)}</p>
                       </div>
                       <div>
                         {item.status === 'attended' ? (
                           <span className="inline-block text-xs bg-success/10 text-success font-semibold px-2.5 py-1 rounded-full">
-                            เข้าเรียน
+                            เข้ากิจกรรม
                           </span>
                         ) : (
                           <span className="inline-block text-xs bg-error/10 text-error font-semibold px-2.5 py-1 rounded-full">
-                            ขาดเรียน
+                            ไม่เข้ากิจกรรม
                           </span>
                         )}
                       </div>

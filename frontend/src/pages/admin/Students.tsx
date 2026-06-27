@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Users, 
@@ -528,7 +528,7 @@ export default function AdminStudents() {
         major_code: newMajorCode.trim().toUpperCase(),
         room: newRoom
       });
-      setMajorSuccess('บันทึกข้อมูลสาขาวิชา/ห้องเรียนใหม่เรียบร้อยแล้ว!');
+      setMajorSuccess('บันทึกข้อมูลสาขาวิชา/กลุ่มเรียนใหม่เรียบร้อยแล้ว!');
       setNewMajorName('เทคนิคคอมพิวเตอร์');
       setNewMajorCode('ชทค');
       fetchMajors();
@@ -542,7 +542,7 @@ export default function AdminStudents() {
   const handleDeleteMajor = async (id: number) => {
     setConfirmDialog({
       show: true,
-      title: 'ลบสาขาวิชา/ห้องเรียน',
+      title: 'ลบสาขาวิชา/กลุ่มเรียน',
       message: 'คุณแน่ใจหรือไม่ที่จะลบสาขานี้ออกจากระบบ?',
       onConfirm: async () => {
         try {

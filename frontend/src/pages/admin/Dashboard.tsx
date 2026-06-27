@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Calendar, 
@@ -213,7 +213,7 @@ export default function AdminDashboard() {
     allStudents.forEach(s => {
       let key = '';
       if (tab === 'summary') {
-        key = s.status === 'present' ? 'มาเรียน' : 'ขาดเรียน';
+        key = s.status === 'present' ? 'เข้ากิจกรรม' : 'ไม่เข้ากิจกรรม';
       } else if (tab === 'year') {
         const yr = s.year || s.class_year;
         key = yr ? `ปี ${yr}` : 'ไม่ระบุ';
@@ -243,40 +243,40 @@ export default function AdminDashboard() {
 
     groupEntries.forEach(([groupName, counts]) => {
       if (tab === 'summary') {
-        if (groupName === 'มาเรียน' && counts.present > 0) {
+        if (groupName === 'เข้ากิจกรรม' && counts.present > 0) {
           segments.push({
-            label: 'มาเรียน (Present)',
+            label: 'เข้ากิจกรรม (Present)',
             status: 'present',
             value: counts.present,
             color: '#10B981',
-            path: ['มาเรียน']
+            path: ['เข้ากิจกรรม']
           });
-        } else if (groupName === 'ขาดเรียน' && counts.absent > 0) {
+        } else if (groupName === 'ไม่เข้ากิจกรรม' && counts.absent > 0) {
           segments.push({
-            label: 'ขาดเรียน (Absent)',
+            label: 'ไม่เข้ากิจกรรม (Absent)',
             status: 'absent',
             value: counts.absent,
             color: '#EF4444',
-            path: ['ขาดเรียน']
+            path: ['ไม่เข้ากิจกรรม']
           });
         }
       } else {
         if (counts.present > 0) {
           segments.push({
-            label: `มาเรียน (${groupName})`,
+            label: `เข้ากิจกรรม (${groupName})`,
             status: 'present',
             value: counts.present,
             color: getSegmentColor('present', [groupName], 2),
-            path: ['มาเรียน', groupName]
+            path: ['เข้ากิจกรรม', groupName]
           });
         }
         if (counts.absent > 0) {
           segments.push({
-            label: `ขาดเรียน (${groupName})`,
+            label: `ไม่เข้ากิจกรรม (${groupName})`,
             status: 'absent',
             value: counts.absent,
             color: getSegmentColor('absent', [groupName], 2),
-            path: ['ขาดเรียน', groupName]
+            path: ['ไม่เข้ากิจกรรม', groupName]
           });
         }
       }
@@ -381,7 +381,7 @@ export default function AdminDashboard() {
     if (!targetSession) return;
 
     const sessionObj = sessions.find(s => s.id === targetSession);
-    const sessionLabel = sessionObj ? `สัปดาห์ที่ ${sessionObj.week_number}` : 'คาบกิจกรรมนี้';
+    const sessionLabel = sessionObj ? `ครั้งที่ ${sessionObj.week_number}` : 'คาบกิจกรรมนี้';
 
     setConfirmDialog({
       show: true,
@@ -521,9 +521,9 @@ export default function AdminDashboard() {
     const link = document.createElement("a");
     link.setAttribute("href", url);
     const fileLabel = selectedSessionId === 'all' 
-      ? 'ทุกสัปดาห์' 
-      : `สัปดาห์ที่_${selectedSession ? selectedSession.week_number : ''}`;
-    link.setAttribute("download", `รายงาน_${activeTab === 'present' ? 'คนมาเรียน' : 'คนขาดเรียน'}_${fileLabel}.csv`);
+      ? 'ทุกครั้ง' 
+      : `ครั้งที่_${selectedSession ? selectedSession.week_number : ''}`;
+    link.setAttribute("download", `รายงาน_${activeTab === 'present' ? 'คนเข้ากิจกรรม' : 'คนไม่เข้ากิจกรรม'}_${fileLabel}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -565,7 +565,7 @@ export default function AdminDashboard() {
             <span>ภาพรวมและสถิติเช็กชื่อ</span>
           </h1>
           <p className="text-muted text-sm md:text-base mt-2">
-            ตรวจสอบอัตราการเข้าร่วมกิจกรรมสัปดาห์ปัจจุบัน วิเคราะห์แนวโน้ม ค้นหาและคัดกรองข้อมูลอย่างละเอียด
+            ตรวจสอบอัตราการเข้าร่วมกิจกรรมครั้งปัจจุบัน วิเคราะห์แนวโน้ม ค้นหาและคัดกรองข้อมูลอย่างละเอียด
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
@@ -626,7 +626,7 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {/* Week Selector */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">สัปดาห์กิจกรรม</label>
+            <label className="block text-xs font-semibold text-ink">ครั้งที่กิจกรรม</label>
             <select
               value={selectedSessionId}
               onChange={e => {
@@ -639,13 +639,13 @@ export default function AdminDashboard() {
               }}
               className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
             >
-              <option value="all">ทุกสัปดาห์ (All Weeks)</option>
+              <option value="all">ทุกครั้ง (All Weeks)</option>
               {sessions.map(s => (
                 <option key={s.id} value={s.id}>
-                  สัปดาห์ที่ {s.week_number} • {s.title}
+                  ครั้งที่ {s.week_number} • {s.title}
                 </option>
               ))}
-              {sessions.length === 0 && <option value="">ไม่มีคาบเรียนในระบบ</option>}
+              {sessions.length === 0 && <option value="">ไม่มีคาบกิจกรรมในระบบ</option>}
             </select>
           </div>
 
@@ -733,10 +733,10 @@ export default function AdminDashboard() {
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
             <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             <div>
-              <span className="font-bold">โหมดภาพรวมทุกสัปดาห์:</span>{' '}
-              ตัวเลขที่แสดงคือ <span className="font-semibold">ยอดสะสม (คน × สัปดาห์)</span> ไม่ใช่จำนวนนักศึกษาจริง{' '}
-              เช่น 35 คน × {sessions.length} สัปดาห์ = {35 * sessions.length} คน-ครั้ง ·{' '}
-              ดูค่า <span className="font-semibold">"เฉลี่ยต่อสัปดาห์"</span> เพื่อเปรียบเทียบจำนวนคนต่อคาบ
+              <span className="font-bold">โหมดภาพรวมทุกครั้ง:</span>{' '}
+              ตัวเลขที่แสดงคือ <span className="font-semibold">ยอดสะสม (คน × ครั้ง)</span> ไม่ใช่จำนวนนักศึกษาจริง{' '}
+              เช่น 35 คน × {sessions.length} ครั้ง = {35 * sessions.length} คน-ครั้ง ·{' '}
+              ดูค่า <span className="font-semibold">"เฉลี่ยต่อครั้ง"</span> เพื่อเปรียบเทียบจำนวนคนต่อคาบ
             </div>
           </div>
         )}
@@ -779,7 +779,7 @@ export default function AdminDashboard() {
           <div className="bg-canvas border border-hairline rounded-lg p-5 flex flex-col justify-between shadow-sm transition-all hover:shadow-md">
             <div className="flex justify-between items-start">
               <span className="text-xs font-bold uppercase tracking-wider text-muted">
-                {selectedSessionId === 'all' ? 'เฉลี่ยต่อสัปดาห์' : 'สรุปจำนวนผู้เข้าร่วม'}
+                {selectedSessionId === 'all' ? 'เฉลี่ยต่อครั้ง' : 'สรุปจำนวนผู้เข้าร่วม'}
               </span>
               <span className="p-1.5 bg-success/10 text-success rounded-full"><UserCheck size={14} /></span>
             </div>
@@ -790,7 +790,7 @@ export default function AdminDashboard() {
                 <div className="text-xl font-extrabold text-success">
                   {selectedSessionId === 'all' ? avgPresent : stats.totalPresent}
                 </div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">มาเรียน (คน)</div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">เข้ากิจกรรม (คน)</div>
                 {selectedSessionId === 'all' && (
                   <div className="text-[9px] text-muted-soft mt-0.5">
                     รวม {stats.totalPresent} คน-ครั้ง
@@ -802,7 +802,7 @@ export default function AdminDashboard() {
                 <div className="text-xl font-extrabold text-error">
                   {selectedSessionId === 'all' ? avgAbsent : stats.totalAbsent}
                 </div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">ขาดเรียน (คน)</div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">ไม่เข้ากิจกรรม (คน)</div>
                 {selectedSessionId === 'all' && (
                   <div className="text-[9px] text-muted-soft mt-0.5">
                     รวม {stats.totalAbsent} คน-ครั้ง
@@ -834,8 +834,8 @@ export default function AdminDashboard() {
             <div className="space-y-1.5 mt-3">
               <div className="text-sm font-bold text-ink truncate">
                 {selectedSessionId === 'all' 
-                  ? 'ทุกสัปดาห์เรียนรวมกัน' 
-                  : `สัปดาห์ที่ ${selectedSession ? selectedSession.week_number : '-'} • ${selectedSession ? selectedSession.title : '-'}`}
+                  ? 'ทุกครั้งรวมกัน' 
+                  : `ครั้งที่ ${selectedSession ? selectedSession.week_number : '-'} • ${selectedSession ? selectedSession.title : '-'}`}
               </div>
               <div className="text-xs text-muted-soft flex items-center space-x-1">
                 <span>
@@ -858,7 +858,7 @@ export default function AdminDashboard() {
           <div className="bg-canvas border border-hairline rounded-lg p-5 flex flex-col justify-between shadow-sm transition-all hover:shadow-md">
             <div className="flex justify-between items-start">
               <span className="text-xs font-bold uppercase tracking-wider text-muted">เปรียบเทียบตามเพศ</span>
-              <span className="text-[10px] font-semibold text-muted-soft bg-surface-soft px-1.5 py-0.5 rounded border border-hairline">มาเรียน %</span>
+              <span className="text-[10px] font-semibold text-muted-soft bg-surface-soft px-1.5 py-0.5 rounded border border-hairline">เข้ากิจกรรม %</span>
             </div>
 
             {stats.genderStats ? (
@@ -932,7 +932,7 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between border-b border-hairline pb-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
                   <TrendingUp size={16} className="text-primary" />
-                  <span>แนวโน้มการเช็กชื่อเข้าเรียนรายสัปดาห์ (ย้อนหลังสูงสุด 6 คาบ)</span>
+                  <span>แนวโน้มการเช็กชื่อเข้าเรียนรายครั้ง (ย้อนหลังสูงสุด 6 คาบ)</span>
                 </h3>
               </div>
               
@@ -1067,7 +1067,7 @@ export default function AdminDashboard() {
                   {/* Floating HTML Tooltip */}
                   {hoveredTrendIndex !== null && stats.weeklyTrend[hoveredTrendIndex] && (
                     <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1.5 animate-in fade-in duration-150 z-10 min-w-[170px] max-w-[220px]">
-                      <div className="font-bold text-ink">สัปดาห์ที่ {stats.weeklyTrend[hoveredTrendIndex].weekNumber}</div>
+                      <div className="font-bold text-ink">ครั้งที่ {stats.weeklyTrend[hoveredTrendIndex].weekNumber}</div>
                       <div className="text-muted truncate text-[11px] pb-1 border-b border-hairline">{stats.weeklyTrend[hoveredTrendIndex].title}</div>
                       <div className="flex justify-between items-center gap-4 pt-1 font-semibold">
                         <span className="text-muted">อัตราเข้าเรียน:</span>
@@ -1147,7 +1147,7 @@ export default function AdminDashboard() {
                   }`}
                 >
                   <LayoutDashboard size={13} />
-                  <span>4. ห้องเรียน</span>
+                  <span>4. กลุ่มเรียน</span>
                 </button>
                 <button
                   onClick={() => { setRatioTab('gender'); setHoveredPath(null); setHoveredSeg(null); }}
@@ -1240,7 +1240,7 @@ export default function AdminDashboard() {
                                 {selectedSessionId === 'all' ? (
                                   <div className="text-[7.5px] text-muted-soft font-bold leading-tight">
                                     <div>เฉลี่ย {Math.round(hoveredSeg.value / numWeeks)} จาก {uniqueExpected} คน</div>
-                                    <div className="text-[6.5px] font-medium opacity-80">({numWeeks} สัปดาห์: {hoveredSeg.value}/{totalExpected} คน-ครั้ง)</div>
+                                    <div className="text-[6.5px] font-medium opacity-80">({numWeeks} ครั้ง: {hoveredSeg.value}/{totalExpected} คน-ครั้ง)</div>
                                   </div>
                                 ) : (
                                   <div className="text-[8px] text-muted-soft font-semibold leading-normal">
@@ -1250,12 +1250,12 @@ export default function AdminDashboard() {
                               </div>
                             ) : (
                               <div>
-                                <div className="text-[9px] font-bold text-muted uppercase">มาเรียนรวม</div>
+                                <div className="text-[9px] font-bold text-muted uppercase">เข้ากิจกรรมรวม</div>
                                 <div className="text-2xl font-black text-ink">{Math.round(presentPercent)}%</div>
                                 {selectedSessionId === 'all' ? (
                                   <div className="text-[7.5px] text-muted-soft font-bold leading-tight">
                                     <div>เฉลี่ย {avgPresent} / {uniqueExpected} คน</div>
-                                    <div className="text-[6.5px] font-medium opacity-80">({numWeeks} สัปดาห์: {stats.totalPresent}/{totalExpected} คน-ครั้ง)</div>
+                                    <div className="text-[6.5px] font-medium opacity-80">({numWeeks} ครั้ง: {stats.totalPresent}/{totalExpected} คน-ครั้ง)</div>
                                   </div>
                                 ) : (
                                   <div className="text-[9px] text-muted-soft font-semibold">{stats.totalPresent} / {totalExpected} คน</div>
@@ -1316,7 +1316,7 @@ export default function AdminDashboard() {
                               <div className="font-mono text-muted text-[10px] pl-[18px]">
                                 {selectedSessionId === 'all' ? (
                                   <span>
-                                    เฉลี่ย {Math.round(seg.value / numWeeks)}/{uniqueExpected} คน ({numWeeks} สัปดาห์: {seg.value}/{totalExpected} คน-ครั้ง) ({seg.percentage}%)
+                                    เฉลี่ย {Math.round(seg.value / numWeeks)}/{uniqueExpected} คน ({numWeeks} ครั้ง: {seg.value}/{totalExpected} คน-ครั้ง) ({seg.percentage}%)
                                   </span>
                                 ) : (
                                   <span>
@@ -1459,7 +1459,7 @@ export default function AdminDashboard() {
                         <span className="font-bold text-success">{stats.roomStats[hoveredRoomIndex].present} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
                       </div>
                       <div className="flex justify-between text-muted-soft">
-                        <span>ขาดเรียน:</span>
+                        <span>ไม่เข้ากิจกรรม:</span>
                         <span className="font-bold text-error">{stats.roomStats[hoveredRoomIndex].absent} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
                       </div>
                       <div className="flex justify-between text-muted-soft font-semibold border-b border-hairline pb-1 mb-1">
@@ -1470,7 +1470,7 @@ export default function AdminDashboard() {
                         <span>สัดส่วนในกลุ่มผู้เรียนคลาสนี้:</span>
                         <span className="text-primary">{stats.totalPresent > 0 ? Math.round((stats.roomStats[hoveredRoomIndex].present / stats.totalPresent) * 100) : 0}%</span>
                       </div>
-                      <div className="text-[10px] text-muted-soft leading-tight mt-0.5">ของนักศึกษาที่มาเรียนคาบนี้ทั้งหมด</div>
+                      <div className="text-[10px] text-muted-soft leading-tight mt-0.5">ของนักศึกษาที่เข้ากิจกรรมคาบนี้ทั้งหมด</div>
                     </div>
                   )}
                 </div>
@@ -1756,7 +1756,7 @@ export default function AdminDashboard() {
                       <th className="p-3 w-12 text-center">ลำดับ</th>
                       <th className="p-3 w-36">รหัสนักศึกษา</th>
                       <th className="p-3">ชื่อ-นามสกุล</th>
-                      {selectedSessionId === 'all' && <th className="p-3 w-40">สัปดาห์กิจกรรม</th>}
+                      {selectedSessionId === 'all' && <th className="p-3 w-40">ครั้งที่กิจกรรม</th>}
                       <th className="p-3 text-center">กลุ่มเรียน / สาขาวิชา</th>
                       <th className="p-3 w-32 text-center">เวลาลงชื่อ</th>
                       <th className="p-3 w-28 text-right">สถานะ</th>
@@ -1775,7 +1775,7 @@ export default function AdminDashboard() {
                         <td className="p-3 font-semibold text-ink">{student.prefix || ''}{student.first_name} {student.last_name}</td>
                         {selectedSessionId === 'all' && (
                           <td className="p-3 text-xs text-ink truncate max-w-[160px]">
-                            สัปดาห์ที่ {(student as any).week_number} • {(student as any).session_title}
+                            ครั้งที่ {(student as any).week_number} • {(student as any).session_title}
                           </td>
                         )}
                         <td className="p-3 text-xs text-ink text-center">
@@ -1796,7 +1796,7 @@ export default function AdminDashboard() {
             ) : (
               // Absent Students List
               filteredAbsentList.length === 0 ? (
-                <div className="p-12 text-center text-xs text-muted-soft">ไม่พบคนขาดเรียนในกลุ่มตัวกรองนี้</div>
+                <div className="p-12 text-center text-xs text-muted-soft">ไม่พบคนไม่เข้ากิจกรรมในกลุ่มตัวกรองนี้</div>
               ) : (
                 <table className="w-full text-left border-collapse min-w-[600px]">
                   <thead className="sticky top-0 bg-surface-soft z-10">
@@ -1804,7 +1804,7 @@ export default function AdminDashboard() {
                       <th className="p-3 w-12 text-center">ลำดับ</th>
                       <th className="p-3 w-36">รหัสนักศึกษา</th>
                       <th className="p-3">ชื่อ-นามสกุล</th>
-                      {selectedSessionId === 'all' && <th className="p-3 w-40">สัปดาห์กิจกรรม</th>}
+                      {selectedSessionId === 'all' && <th className="p-3 w-40">ครั้งที่กิจกรรม</th>}
                       <th className="p-3 text-center">กลุ่มเรียน / สาขาวิชา</th>
                       <th className="p-3 w-32 text-right">เช็กชื่อแบบแมนนวล</th>
                     </tr>
@@ -1822,7 +1822,7 @@ export default function AdminDashboard() {
                         <td className="p-3 font-semibold text-ink">{student.prefix || ''}{student.first_name} {student.last_name}</td>
                         {selectedSessionId === 'all' && (
                           <td className="p-3 text-xs text-ink truncate max-w-[160px]">
-                            สัปดาห์ที่ {(student as any).week_number} • {(student as any).session_title}
+                            ครั้งที่ {(student as any).week_number} • {(student as any).session_title}
                           </td>
                         )}
                         <td className="p-3 text-xs text-ink text-center">
@@ -1915,7 +1915,7 @@ export default function AdminDashboard() {
                 <span className="font-bold text-primary uppercase">{selectedStudentHistory.student.major_code}</span>
               </div>
               <div>
-                <span className="text-muted block font-semibold mb-0.5">ห้องเรียน</span>
+                <span className="text-muted block font-semibold mb-0.5">กลุ่มเรียน</span>
                 <span className="font-bold text-ink">ห้อง {selectedStudentHistory.student.room}</span>
               </div>
             </div>
@@ -1931,7 +1931,7 @@ export default function AdminDashboard() {
                 <div className="text-lg font-black text-primary">{selectedStudentHistory.stats.totalPresent} / {selectedStudentHistory.stats.totalSessions}</div>
               </div>
               <div className="bg-error/5 border border-error/20 p-2.5 rounded-lg">
-                <div className="text-xs font-semibold text-muted mb-0.5 font-bold">ขาดเรียน (ขาด)</div>
+                <div className="text-xs font-semibold text-muted mb-0.5 font-bold">ไม่เข้ากิจกรรม (ขาด)</div>
                 <div className="text-lg font-black text-error">{selectedStudentHistory.stats.totalAbsent} / {selectedStudentHistory.stats.totalSessions}</div>
               </div>
             </div>
@@ -1950,7 +1950,7 @@ export default function AdminDashboard() {
                     <div key={idx} className="flex justify-between items-center p-3 text-xs hover:bg-surface-soft/10 transition-colors">
                       <div className="space-y-0.5">
                         <div className="font-bold text-ink truncate max-w-[250px] sm:max-w-[320px]">
-                          สัปดาห์ที่ {h.weekNumber} • {h.title}
+                          ครั้งที่ {h.weekNumber} • {h.title}
                         </div>
                         <div className="text-[10px] text-muted-soft font-medium">
                           วันที่จัดกิจกรรม: {new Date(h.date).toLocaleDateString('th-TH')}
