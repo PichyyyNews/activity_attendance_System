@@ -130,7 +130,7 @@ export default function UserDashboard() {
                 required
                 value={studentId}
                 onChange={e => setStudentId(e.target.value)}
-                className="flex-grow h-11 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all font-mono"
+                className="flex-grow h-11 border border-hairline rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all font-mono"
                 placeholder="เช่น 64012345678" 
               />
               <button 

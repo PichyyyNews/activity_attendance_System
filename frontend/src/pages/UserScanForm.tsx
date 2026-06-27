@@ -423,7 +423,7 @@ export default function UserScanForm() {
                   value={firstName}
                   onChange={e => setFirstName(e.target.value)}
                   disabled={isSessionClosed}
-                  className="w-full h-11 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:bg-surface-soft disabled:text-muted"
+                  className="w-full h-11 border border-hairline rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:bg-surface-soft disabled:text-muted"
                   placeholder="เช่น ณัฐพัทธ์"
                 />
               </div>
@@ -435,7 +435,7 @@ export default function UserScanForm() {
                   value={lastName}
                   onChange={e => setLastName(e.target.value)}
                   disabled={isSessionClosed}
-                  className="w-full h-11 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:bg-surface-soft disabled:text-muted"
+                  className="w-full h-11 border border-hairline rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all disabled:bg-surface-soft disabled:text-muted"
                   placeholder="เช่น นิวส์ก้า"
                 />
               </div>
@@ -468,7 +468,7 @@ export default function UserScanForm() {
                     setStudentId(val);
                   }
                 }}
-                className={`w-full h-11 border rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
+                className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
                   studentId.length > 0 && studentId.length !== 11
                     ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
                     : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
@@ -495,7 +495,7 @@ export default function UserScanForm() {
                   }
                 }}
                 disabled={isSessionClosed}
-                className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+                className="w-full h-11 border border-hairline rounded-md px-3 text-base bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
               >
                 <option value="" disabled>-- เลือกกลุ่มเรียน / สาขาวิชา --</option>
                 {majors.map((m) => (
