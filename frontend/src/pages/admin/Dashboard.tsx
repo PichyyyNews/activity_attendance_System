@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Calendar, 
@@ -145,6 +145,7 @@ export default function AdminDashboard() {
 
   // Hover states for interactive SVG charts
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
+  const [trendLimit, setTrendLimit] = useState<number>(6);
   const [hoveredRoomIndex, setHoveredRoomIndex] = useState<number | null>(null);
   const [hoveredScanIndex, setHoveredScanIndex] = useState<number | null>(null);
 
@@ -929,11 +930,33 @@ export default function AdminDashboard() {
             
             {/* Chart 1: Curved Line Chart (Weekly Trend) */}
             <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md">
-              <div className="flex items-center justify-between border-b border-hairline pb-3">
-                <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
+              <div className="flex items-center justify-between border-b border-hairline pb-3 gap-3">
+                <h3 className="text-sm font-bold text-ink flex items-center space-x-2 shrink-0">
                   <TrendingUp size={16} className="text-primary" />
-                  <span>แนวโน้มการเช็กชื่อเข้าเรียนรายครั้ง (ย้อนหลังสูงสุด 6 คาบ)</span>
+                  <span>แนวโน้มการเช็กชื่อเข้ากิจกรรม</span>
                 </h3>
+                {/* Trend limit slider — top-right of card */}
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] text-muted whitespace-nowrap">ย้อนหลัง</span>
+                  <input
+                    id="trend-limit-slider"
+                    type="range"
+                    min={1}
+                    max={Math.max(1, stats?.weeklyTrend.length ?? 1)}
+                    value={Math.min(trendLimit, Math.max(1, stats?.weeklyTrend.length ?? 1))}
+                    onChange={e => {
+                      setTrendLimit(Number(e.target.value));
+                      setHoveredTrendIndex(null);
+                    }}
+                    className="w-24 accent-primary cursor-pointer"
+                    style={{ height: '4px' }}
+                  />
+                  <span className="text-[11px] font-bold text-primary whitespace-nowrap font-mono">
+                    {trendLimit >= (stats?.weeklyTrend.length ?? 1)
+                      ? `ทั้งหมด (${stats?.weeklyTrend.length ?? 0})`
+                      : `${trendLimit} คาบ`}
+                  </span>
+                </div>
               </div>
               
               {stats.weeklyTrend.length === 0 ? (
@@ -955,12 +978,13 @@ export default function AdminDashboard() {
                     
                     {/* Coordinates & Lines */}
                     {(() => {
-                      const len = stats.weeklyTrend.length;
-                      const points = stats.weeklyTrend.map((t, idx) => {
+                      const sliced = stats.weeklyTrend.slice(-Math.min(trendLimit, stats.weeklyTrend.length));
+                      const len = sliced.length;
+                      const points = sliced.map((t, idx) => {
                         const step = len > 1 ? 440 / (len - 1) : 440;
                         const x = 40 + idx * step;
                         const y = 140 - (Math.min(t.rate, 100) / 100) * 120;
-                        const diff = idx > 0 ? t.rate - stats.weeklyTrend[idx - 1].rate : 0;
+                        const diff = idx > 0 ? t.rate - sliced[idx - 1].rate : 0;
                         return { x, y, data: t, diff };
                       });
                       
@@ -1065,17 +1089,21 @@ export default function AdminDashboard() {
                   </svg>
                   
                   {/* Floating HTML Tooltip */}
-                  {hoveredTrendIndex !== null && stats.weeklyTrend[hoveredTrendIndex] && (
+                  {hoveredTrendIndex !== null && (() => {
+                    const slicedForTooltip = stats.weeklyTrend.slice(-Math.min(trendLimit, stats.weeklyTrend.length));
+                    const hovered = slicedForTooltip[hoveredTrendIndex];
+                    if (!hovered) return null;
+                    return (
                     <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1.5 animate-in fade-in duration-150 z-10 min-w-[170px] max-w-[220px]">
-                      <div className="font-bold text-ink">ครั้งที่ {stats.weeklyTrend[hoveredTrendIndex].weekNumber}</div>
-                      <div className="text-muted truncate text-[11px] pb-1 border-b border-hairline">{stats.weeklyTrend[hoveredTrendIndex].title}</div>
+                      <div className="font-bold text-ink">ครั้งที่ {hovered.weekNumber}</div>
+                      <div className="text-muted truncate text-[11px] pb-1 border-b border-hairline">{hovered.title}</div>
                       <div className="flex justify-between items-center gap-4 pt-1 font-semibold">
-                        <span className="text-muted">อัตราเข้าเรียน:</span>
-                        <span className="text-ink font-mono font-bold text-sm">{stats.weeklyTrend[hoveredTrendIndex].rate}%</span>
+                        <span className="text-muted">อัตราเข้ากิจกรรม:</span>
+                        <span className="text-ink font-mono font-bold text-sm">{hovered.rate}%</span>
                       </div>
                       {hoveredTrendIndex > 0 && (() => {
-                        const prevRate = stats.weeklyTrend[hoveredTrendIndex - 1].rate;
-                        const currRate = stats.weeklyTrend[hoveredTrendIndex].rate;
+                        const prevRate = slicedForTooltip[hoveredTrendIndex - 1].rate;
+                        const currRate = hovered.rate;
                         const diff = currRate - prevRate;
                         const isUp = diff > 0;
                         const isDown = diff < 0;
@@ -1096,7 +1124,8 @@ export default function AdminDashboard() {
                         );
                       })()}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
             </div>
