@@ -1,604 +1,638 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, Plus, Edit2, Trash2, X, Check, ClipboardCheck, GraduationCap } from 'lucide-react';
+import { ClipboardCheck, Users, ChevronRight, CheckCircle2, XCircle, Minus, X } from 'lucide-react';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface Major {
+  id: number;
+  level: string;
+  year: string;
+  major_name: string;
+  major_code: string;
+  room: string;
+}
+
+interface Session {
+  id: number;
+  week_number: number;
+  title: string;
+  date: string;
+}
+
+interface Student {
+  id: number;
+  student_id: string;
+  prefix: string;
+  first_name: string;
+  last_name: string;
+  level: string;
+  year: string;
+  major_code: string;
+  major_name: string;
+  room: string;
+  attendance: Record<number, string>; // session_id -> attended_at
+  remarks?: Record<number, string>; // session_id -> remark
+}
+
+interface HeatmapData {
+  sessions: Session[];
+  students: Student[];
+}
+
+interface TooltipInfo {
+  x: number;
+  y: number;
+  content: {
+    studentName: string;
+    weekNumber: number;
+    title: string;
+    date: string;
+    status: 'present' | 'absent' | 'no-session';
+    attendedAt?: string;
+    remark?: string;
+  };
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Label shown on tab: e.g. ปวช.1 ชทค กลุ่ม 1 → "1ชทค1" */
+function tabLabel(m: Major) {
+  return `${m.year}${m.major_code}${m.room}`;
+}
+
+function tabFullLabel(m: Major) {
+  return `${m.level}.${m.year} ${m.major_name} กลุ่ม ${m.room}`;
+}
+
+/** Compute streak of consecutive presents ending at index i */
+function streakAt(student: Student, sessions: Session[], idx: number): number {
+  let streak = 0;
+  for (let k = idx; k >= 0; k--) {
+    if (student.attendance[sessions[k].id] !== undefined) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+/** Color for a heatmap cell */
+function cellColor(status: 'present' | 'absent' | 'no-session', streak: number, hasRemark: boolean): string {
+  if (status === 'no-session') return '#e2e8f0';
+  if (status === 'absent') {
+    return hasRemark ? '#ffedd5' : '#fca5a5';
+  }
+  // present — ramp by streak
+  if (streak >= 5) return '#14532d';
+  if (streak >= 4) return '#166534';
+  if (streak >= 3) return '#15803d';
+  if (streak >= 2) return '#22c55e';
+  return '#86efac';
+}
+
+function cellBorderColor(status: 'present' | 'absent' | 'no-session', streak: number, hasRemark: boolean): string {
+  if (status === 'no-session') return '#cbd5e1';
+  if (status === 'absent') {
+    return hasRemark ? '#f97316' : '#f87171';
+  }
+  if (streak >= 3) return '#15803d';
+  if (streak >= 2) return '#16a34a';
+  return '#4ade80';
+}
+
+function formatDate(dateStr: string) {
+  try {
+    return new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+  } catch {
+    return dateStr;
+  }
+}
+
+// ─── Heatmap Row ─────────────────────────────────────────────────────────────
+
+function HeatmapRow({
+  student,
+  sessions,
+  onHover,
+  onLeave,
+  onClickCell,
+}: {
+  student: Student;
+  sessions: Session[];
+  onHover: (info: TooltipInfo) => void;
+  onLeave: () => void;
+  onClickCell: (student: Student, session: Session) => void;
+}) {
+  const cells = sessions.map((session, idx) => {
+    const hasAttended = student.attendance[session.id] !== undefined;
+    const status: 'present' | 'absent' | 'no-session' = hasAttended ? 'present' : 'absent';
+    const streak = hasAttended ? streakAt(student, sessions, idx) : 0;
+    const hasRemark = !!(student.remarks && student.remarks[session.id]);
+    const bg = cellColor(status, streak, hasRemark);
+    const border = cellBorderColor(status, streak, hasRemark);
+    return { session, status, bg, border, attendedAt: student.attendance[session.id] };
+  });
+
+  return (
+    <div className="flex gap-[3px] items-center">
+      {cells.map(({ session, status, bg, border, attendedAt }) => {
+        const hasRemark = student.remarks && student.remarks[session.id];
+        return (
+          <div
+            key={session.id}
+            className="w-5 h-5 rounded-[3px] shrink-0 cursor-pointer transition-transform hover:scale-125 hover:z-10 relative flex items-center justify-center"
+            style={{ backgroundColor: bg, border: `1.5px solid ${border}` }}
+            onClick={() => onClickCell(student, session)}
+            onMouseEnter={e => {
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              onHover({
+                x: rect.left + rect.width / 2,
+                y: rect.top,
+                content: {
+                  studentName: `${student.prefix}${student.first_name} ${student.last_name}`,
+                  weekNumber: session.week_number,
+                  title: session.title,
+                  date: session.date,
+                  status,
+                  attendedAt,
+                  remark: student.remarks ? student.remarks[session.id] : undefined,
+                },
+              });
+            }}
+            onMouseLeave={onLeave}
+            title=""
+          >
+            {hasRemark && (
+              <span className="absolute bottom-[2px] right-[2px] w-[4px] h-[4px] bg-amber-500 rounded-full" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Tooltip ─────────────────────────────────────────────────────────────────
+
+function Tooltip({ info }: { info: TooltipInfo }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: info.x, top: info.y });
+
+  useEffect(() => {
+    if (ref.current) {
+      const w = ref.current.offsetWidth;
+      const left = Math.min(Math.max(info.x - w / 2, 8), window.innerWidth - w - 8);
+      setPos({ left, top: info.y - ref.current.offsetHeight - 10 });
+    }
+  }, [info.x, info.y]);
+
+  const { content } = info;
+
+  return (
+    <div
+      ref={ref}
+      className="fixed z-50 pointer-events-none px-3 py-2 rounded-lg shadow-xl border border-hairline bg-canvas text-xs whitespace-nowrap"
+      style={{ left: pos.left, top: pos.top }}
+    >
+      <div className="font-bold text-ink mb-0.5">{content.studentName}</div>
+      <div className="text-muted">สัปดาห์ที่ {content.weekNumber} — {content.title}</div>
+      <div className="text-muted">{formatDate(content.date)}</div>
+      <div className={`mt-1 font-semibold flex items-center gap-1 ${
+        content.status === 'present' ? 'text-green-600' :
+        content.status === 'absent' ? 'text-red-500' : 'text-slate-400'
+      }`}>
+        {content.status === 'present' ? <><CheckCircle2 size={11} /> มาเรียน</> :
+         content.status === 'absent' ? <><XCircle size={11} /> ขาดเรียน</> :
+         <><Minus size={11} /> ไม่มีข้อมูล</>}
+        {content.status === 'present' && content.attendedAt && (
+          <span className="text-muted font-normal ml-1">
+            {new Date(content.attendedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+          </span>
+        )}
+      </div>
+      {content.remark && (
+        <div className="mt-1.5 pt-1 border-t border-hairline text-amber-600 font-semibold flex items-center gap-1">
+          <span>📝 หมายเหตุ:</span>
+          <span className="font-medium text-ink truncate max-w-[150px]">{content.remark}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AdminAttendanceList() {
-  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string }[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
-  const [attendances, setAttendances] = useState<any[]>([]);
-  const [majors, setMajors] = useState<{ id: number; class_year: string; major_code: string; room: string }[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  // Loading & error states
-  const [loadingSessions, setLoadingSessions] = useState(true);
-  const [loadingAttendances, setLoadingAttendances] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [majors, setMajors] = useState<Major[]>([]);
+  const [activeTab, setActiveTab] = useState<string>(''); // "level-year-major_code-room"
+  const [heatmapData, setHeatmapData] = useState<HeatmapData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
+  const [search, setSearch] = useState('');
 
-  // Modal states
-  const [showModal, setShowModal] = useState(false);
-  const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
-  const [currentRecordId, setCurrentRecordId] = useState<number | null>(null);
+  const [editingCell, setEditingCell] = useState<{
+    student: Student;
+    session: Session;
+    status: 'present' | 'absent';
+    remark: string;
+  } | null>(null);
 
-  // Custom dialog states
-  const [alertDialog, setAlertDialog] = useState<{ show: boolean; title: string; message: string; type: 'info' | 'error' | 'success' }>({ show: false, title: '', message: '', type: 'info' });
-  const [confirmDialog, setConfirmDialog] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void }>({ show: false, title: '', message: '', onConfirm: () => {} });
-
-  // Form states
-  const [prefix, setPrefix] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [studentId, setStudentId] = useState('');
-  const [selectedYear, setSelectedYear] = useState('');
-  const [selectedMajorCode, setSelectedMajorCode] = useState('');
-  const [selectedRoom, setSelectedRoom] = useState('');
-  const [modalError, setModalError] = useState('');
-
-  useEffect(() => {
-    // Fetch sessions
-    axios.get('/api/sessions')
-      .then(res => {
-        const data = res.data || [];
-        setSessions(data);
-        if (data.length > 0) {
-          // Default to the latest session
-          const latest = [...data].sort((a, b) => b.week_number - a.week_number)[0];
-          setSelectedSessionId(latest.id);
-        }
-        setLoadingSessions(false);
-      })
-      .catch(err => {
-        console.error('Error fetching sessions:', err);
-        setErrorMsg('ไม่สามารถโหลดข้อมูลคาบกิจกรรมได้');
-        setLoadingSessions(false);
-      });
-
-    // Fetch majors for cascading selects
-    axios.get('/api/majors')
-      .then(res => setMajors(res.data || []))
-      .catch(err => console.error('Error fetching majors:', err));
-  }, []);
-
-  useEffect(() => {
-    if (selectedSessionId !== null) {
-      fetchAttendances(selectedSessionId);
-    }
-  }, [selectedSessionId]);
-
-  const fetchAttendances = (sessionId: number) => {
-    setLoadingAttendances(true);
-    axios.get(`/api/attendances/session/${sessionId}`)
-      .then(res => {
-        setAttendances(res.data || []);
-        setLoadingAttendances(false);
-      })
-      .catch(err => {
-        console.error('Error fetching attendances:', err);
-        setErrorMsg('ไม่สามารถโหลดรายชื่อการเข้าเรียนได้');
-        setLoadingAttendances(false);
-      });
-  };
-
-  // Cascading select options helper
-  const years = Array.from(new Set(majors.map(m => m.class_year))).sort();
-  const majorCodes = Array.from(
-    new Set(
-      majors
-        .filter(m => m.class_year === selectedYear)
-        .map(m => m.major_code)
-    )
-  ).sort();
-  const rooms = Array.from(
-    new Set(
-      majors
-        .filter(m => m.class_year === selectedYear && m.major_code === selectedMajorCode)
-        .map(m => m.room)
-    )
-  ).sort();
-
-  const handleOpenAdd = () => {
-    setModalMode('add');
-    setCurrentRecordId(null);
-    setPrefix('');
-    setFirstName('');
-    setLastName('');
-    setStudentId('');
-    setSelectedYear('');
-    setSelectedMajorCode('');
-    setSelectedRoom('');
-    setModalError('');
-    setShowModal(true);
-  };
-
-  const handleOpenEdit = (record: any) => {
-    setModalMode('edit');
-    setCurrentRecordId(record.id);
-    setPrefix(record.prefix || '');
-    setFirstName(record.first_name);
-    setLastName(record.last_name);
-    setStudentId(record.student_id);
-    
-    // Check if the saved class_year/major_code/room exists in configured majors
-    setSelectedYear(record.class_year || '');
-    setSelectedMajorCode(record.major_code || '');
-    setSelectedRoom(record.room || '');
-    
-    setModalError('');
-    setShowModal(true);
-  };
-
-  const handleModalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setModalError('');
-
-    if (!selectedSessionId) {
-      setModalError('กรุณาเลือกสัปดาห์กิจกรรมก่อน');
-      return;
-    }
-
-    if (!prefix || !firstName.trim() || !lastName.trim() || !studentId || !selectedYear || !selectedMajorCode || !selectedRoom) {
-      setModalError('กรุณากรอกข้อมูลให้ครบถ้วน');
-      return;
-    }
-
-    if (!/^\d{11}$/.test(studentId)) {
-      setModalError('รหัสนักศึกษาต้องเป็นตัวเลข 11 หลักเท่านั้น');
-      return;
-    }
-
-    const payload = {
-      session_id: selectedSessionId,
-      prefix,
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      student_id: studentId,
-      class_year: selectedYear,
-      major_code: selectedMajorCode,
-      room: selectedRoom
-    };
-
-    try {
-      if (modalMode === 'add') {
-        await axios.post('/api/attendances', payload);
-        setSuccessMsg('เพิ่มรายชื่อการเข้าเรียนแมนนวลเสร็จสิ้น (ซิงค์ลง Google Sheet อัตโนมัติ)');
-      } else {
-        if (!currentRecordId) return;
-        await axios.put(`/api/attendances/${currentRecordId}`, payload);
-        setSuccessMsg('แก้ไขข้อมูลการเข้าเรียนเรียบร้อยแล้ว');
-      }
-
-      setShowModal(false);
-      fetchAttendances(selectedSessionId);
-      setTimeout(() => setSuccessMsg(''), 4000);
-    } catch (err: any) {
-      setModalError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
-    }
-  };
-
-  const handleDelete = (id: number) => {
-    setConfirmDialog({
-      show: true,
-      title: 'ลบประวัติการเช็กชื่อ?',
-      message: 'คุณแน่ใจหรือไม่ที่จะลบประวัติการเช็กชื่อของนักศึกษารายนี้จากฐานข้อมูล SQLite?',
-      onConfirm: async () => {
-        try {
-          await axios.delete(`/api/attendances/${id}`);
-          setSuccessMsg('ลบรายการเช็กชื่อสำเร็จแล้ว');
-          if (selectedSessionId) {
-            fetchAttendances(selectedSessionId);
-          }
-          setTimeout(() => setSuccessMsg(''), 3000);
-        } catch (err: any) {
-          console.error('Error deleting record:', err);
-          setAlertDialog({
-            show: true,
-            title: 'เกิดข้อผิดพลาด',
-            message: 'ไม่สามารถลบข้อมูลได้',
-            type: 'error'
-          });
-        }
-      }
+  const handleCellClick = (student: Student, session: Session) => {
+    const isPresent = student.attendance[session.id] !== undefined;
+    const remark = student.remarks ? (student.remarks[session.id] || '') : '';
+    setEditingCell({
+      student,
+      session,
+      status: isPresent ? 'present' : 'absent',
+      remark,
     });
   };
 
-  // Filter attendances by query
-  const filteredAttendances = attendances.filter(record => {
-    const query = searchQuery.toLowerCase().trim();
-    if (!query) return true;
-    return (
-      record.student_id.includes(query) ||
-      record.first_name.toLowerCase().includes(query) ||
-      record.last_name.toLowerCase().includes(query) ||
-      (record.major_code && record.major_code.toLowerCase().includes(query))
-    );
+  const handleSaveCell = () => {
+    if (!editingCell) return;
+    const { student, session, status, remark } = editingCell;
+
+    axios.post('/api/attendances/update-status-remark', {
+      student_id: student.student_id,
+      session_id: session.id,
+      status,
+      remark,
+    })
+    .then(() => {
+      // Reload heatmap data
+      if (!activeTab || majors.length === 0) return;
+      const major = majors.find(m => majorKey(m) === activeTab);
+      if (!major) return;
+      axios.get('/api/attendance-heatmap', {
+        params: {
+          level: major.level,
+          year: major.year,
+          major_code: major.major_code,
+          room: major.room,
+        }
+      }).then(res => {
+        setHeatmapData(res.data);
+        setEditingCell(null);
+      });
+    })
+    .catch(err => {
+      console.error('Error updating status and remark:', err);
+      alert('ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
+    });
+  };
+
+  // Fetch majors list for tabs
+  useEffect(() => {
+    axios.get('/api/majors').then(res => {
+      const data: Major[] = res.data || [];
+      setMajors(data);
+      if (data.length > 0) {
+        const first = data[0];
+        setActiveTab(majorKey(first));
+      }
+    });
+  }, []);
+
+  // Fetch heatmap data when tab changes
+  useEffect(() => {
+    if (!activeTab || majors.length === 0) return;
+    const major = majors.find(m => majorKey(m) === activeTab);
+    if (!major) return;
+    setLoading(true);
+    setHeatmapData(null);
+    axios.get('/api/attendance-heatmap', {
+      params: {
+        level: major.level,
+        year: major.year,
+        major_code: major.major_code,
+        room: major.room,
+      }
+    }).then(res => {
+      setHeatmapData(res.data);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [activeTab, majors]);
+
+  const majorKey = (m: Major) => `${m.level}-${m.year}-${m.major_code}-${m.room}`;
+  const activeMajor = majors.find(m => majorKey(m) === activeTab);
+
+  const filteredStudents = (heatmapData?.students || []).filter(s => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return s.student_id.includes(q) ||
+           s.first_name.toLowerCase().includes(q) ||
+           s.last_name.toLowerCase().includes(q);
   });
 
-  const formatThaiDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    try {
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        return date.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-      }
-    } catch (e) {}
-    return dateStr;
-  };
+  const sessions = heatmapData?.sessions || [];
 
-  const formatTime = (isoString: string) => {
-    if (!isoString) return '-';
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
-    } catch (e) {
-      return '-';
-    }
-  };
+  // Legend stripe bg for streak
+  const legendItems = [
+    { label: 'ขาด', color: '#fca5a5', border: '#f87171' },
+    { label: 'ขาด (มีหมายเหตุ)', color: '#ffedd5', border: '#f97316' },
+    { label: 'มา ×1', color: '#86efac', border: '#4ade80' },
+    { label: 'มา ×2', color: '#22c55e', border: '#16a34a' },
+    { label: 'มา ×3+', color: '#15803d', border: '#15803d' },
+  ];
 
   return (
-    <div className="space-y-6 sm:space-y-10">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+    <div className="w-full space-y-5 animate-in fade-in duration-300">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl md:text-4xl font-semibold text-ink tracking-tight flex items-center space-x-2">
-            <ClipboardCheck className="w-8 h-8 text-ink" />
+            <ClipboardCheck className="w-8 h-8 text-primary" />
             <span>ตารางเช็กชื่อเข้าเรียน</span>
           </h1>
-          <p className="text-muted text-sm md:text-base mt-2">
-            ค้นหา ตรวจสอบข้อมูล เพิ่ม แฟ้มข้อมูลการเช็กชื่อเข้าเรียนของนักศึกษาที่จัดเก็บในระบบ SQLite
-          </p>
+          <p className="text-muted text-sm mt-1">ดูประวัติการเข้าเรียนรายชั้นเรียน แบบ Heatmap รายสัปดาห์</p>
         </div>
-        <div>
-          <button
-            onClick={handleOpenAdd}
-            disabled={!selectedSessionId}
-            className="w-full sm:w-auto bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white px-5 py-2.5 rounded-md text-sm font-semibold flex items-center justify-center space-x-2 transition-all active:scale-98 cursor-pointer"
-          >
-            <Plus size={16} />
-            <span>เพิ่มรายชื่อแมนนวล</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Settings/Search Bar */}
-      <div className="bg-canvas border border-hairline rounded-lg p-4 sm:p-5 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
-        {/* Week Selector Dropdown */}
-        <div className="w-full md:w-80 space-y-1.5">
-          <label className="block text-xs font-bold text-muted uppercase tracking-wider">เลือกสัปดาห์กิจกรรม</label>
-          <select
-            value={selectedSessionId || ''}
-            onChange={e => setSelectedSessionId(Number(e.target.value))}
-            className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer font-semibold"
-          >
-            {sessions.length === 0 ? (
-              <option value="" disabled>-- ไม่มีคาบกิจกรรม --</option>
-            ) : (
-              sessions.map(s => (
-                <option key={s.id} value={s.id}>
-                  สัปดาห์ที่ {s.week_number} • {s.title} ({formatThaiDate(s.date)})
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        {/* Filter Search Field */}
-        <div className="w-full md:flex-grow max-w-md space-y-1.5">
-          <label className="block text-xs font-bold text-muted uppercase tracking-wider">ค้นหาตาม ชื่อ/รหัสนักศึกษา/สาขา</label>
-          <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-muted">
-              <Search size={16} />
-            </span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="ค้นหา เช่น ณัฐพัทธ์, 64012345678, ชทค..."
-              className="w-full h-11 border border-hairline rounded-md pl-10 pr-4 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Status Messages */}
-      {successMsg && (
-        <div className="flex items-center space-x-2.5 p-4 rounded-md bg-success/15 border border-success/30 text-success text-sm font-semibold animate-in fade-in duration-200">
-          <Check size={16} />
-          <span>{successMsg}</span>
-        </div>
-      )}
-
-      {errorMsg && (
-        <div className="flex items-center space-x-2.5 p-4 rounded-md bg-error/15 border border-error/30 text-error text-sm font-semibold animate-in fade-in duration-200">
-          <X size={16} />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {/* Attendance Table */}
-      <div className="bg-canvas border border-hairline rounded-lg overflow-hidden shadow-sm">
-        {loadingSessions || loadingAttendances ? (
-          <div className="p-16 text-center space-y-3">
-            <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-            <p className="text-sm text-muted font-semibold">กำลังโหลดตารางเช็กชื่อเรียน...</p>
-          </div>
-        ) : filteredAttendances.length === 0 ? (
-          <div className="p-16 text-center text-muted-soft text-sm">
-            {attendances.length === 0 
-              ? 'สัปดาห์นี้ยังไม่มีนักศึกษาเช็กชื่อเข้าร่วมกิจกรรมในระบบ' 
-              : 'ไม่พบข้อมูลที่ตรงกับเงื่อนไขการค้นหา'}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[700px]">
-              <thead>
-                <tr className="bg-surface-soft border-b border-hairline">
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted w-16 text-center">ลำดับ</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted w-40">รหัสนักศึกษา</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted">ชื่อ-นามสกุล</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted w-32">ระดับชั้นปี/ห้อง</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted w-36">เวลาเข้าเรียน</th>
-                  <th className="p-4 text-xs font-bold uppercase tracking-wider text-muted w-28 text-right">การจัดการ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-hairline">
-                {filteredAttendances.map((record, index) => (
-                  <tr key={record.id} className="hover:bg-surface-soft/30 transition-colors">
-                    <td className="p-4 text-sm text-center text-muted font-semibold">{index + 1}</td>
-                    <td className="p-4 text-sm font-mono font-bold text-ink">{record.student_id}</td>
-                    <td className="p-4 text-sm font-semibold text-ink">
-                      {record.prefix || ''}{record.first_name} {record.last_name}
-                    </td>
-                    <td className="p-4 text-sm font-bold text-ink">
-                      <span className="bg-surface-soft border border-hairline px-2.5 py-0.5 rounded text-xs">
-                        {record.class_year}{record.major_code}{record.room}
-                      </span>
-                    </td>
-                    <td className="p-4 text-sm font-semibold text-muted">
-                      {formatTime(record.attended_at)}
-                    </td>
-                    <td className="p-4 text-right space-x-2">
-                      <button
-                        onClick={() => handleOpenEdit(record)}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-hairline bg-canvas hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
-                        title="แก้ไขข้อมูล"
-                      >
-                        <Edit2 size={13} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(record.id)}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-md border border-error/20 bg-canvas hover:bg-error/10 text-muted hover:text-error transition-colors cursor-pointer"
-                        title="ลบรายชื่อ"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* CRUD Add/Edit Modal overlay */}
-      {showModal && (
-        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm flex items-center justify-center p-6 z-50 animate-in fade-in duration-200">
-          <form
-            onSubmit={handleModalSubmit}
-            className="bg-canvas border border-hairline rounded-lg shadow-2xl p-6 md:p-8 max-w-md w-full relative flex flex-col animate-in zoom-in-95 duration-200 space-y-6"
-          >
-            <button
-              type="button"
-              onClick={() => setShowModal(false)}
-              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full border border-hairline text-muted hover:text-ink hover:bg-surface-soft transition-colors"
-            >
-              <X size={16} />
-            </button>
-
-            <div>
-              <h2 className="text-xl font-bold text-ink tracking-tight">
-                {modalMode === 'add' ? 'เพิ่มรายชื่อการเช็กชื่อด้วยตัวเอง' : 'แก้ไขข้อมูลการเช็กชื่อ'}
-              </h2>
-              <p className="text-xs text-muted mt-1">
-                กรอกข้อมูลรายละเอียดของนักศึกษาให้ครบถ้วนเพื่อทำการบันทึกลง SQLite
-              </p>
+        {/* Legend */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted font-semibold">สถานะ:</span>
+          {legendItems.map(item => (
+            <div key={item.label} className="flex items-center gap-1 text-xs text-muted">
+              <div
+                className="w-4 h-4 rounded-[3px]"
+                style={{ backgroundColor: item.color, border: `1.5px solid ${item.border}` }}
+              />
+              <span>{item.label}</span>
             </div>
+          ))}
+          <div className="flex items-center gap-1 text-xs text-muted">
+            <div className="w-4 h-4 rounded-[3px]" style={{ backgroundColor: '#e2e8f0', border: '1.5px solid #cbd5e1' }} />
+            <span>ไม่มีข้อมูล</span>
+          </div>
+        </div>
+      </div>
 
-            {modalError && (
-              <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md">
-                {modalError}
-              </div>
-            )}
+      {/* Tab Bar */}
+      {majors.length === 0 ? (
+        <div className="bg-canvas border border-hairline rounded-lg p-8 text-center text-muted">
+          <Users size={32} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm font-medium">ยังไม่มีกลุ่มเรียนในระบบ</p>
+          <p className="text-xs mt-1">กรุณาเพิ่มสาขาวิชา/กลุ่มเรียนในเมนู ตั้งค่า</p>
+        </div>
+      ) : (
+        <>
+          {/* Tabs */}
+          <div className="flex gap-1.5 flex-wrap">
+            {majors.map(m => {
+              const key = majorKey(m);
+              const isActive = activeTab === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  title={tabFullLabel(m)}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer border ${
+                    isActive
+                      ? 'bg-primary text-white border-primary shadow-md shadow-primary/20'
+                      : 'bg-canvas text-muted border-hairline hover:border-primary hover:text-primary'
+                  }`}
+                >
+                  {tabLabel(m)}
+                </button>
+              );
+            })}
+          </div>
 
-            <div className="space-y-4">
-              {/* Row 1: Student ID */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา 11 หลัก</label>
-                <input
-                  type="text"
-                  required
-                  value={studentId}
-                  onChange={e => setStudentId(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                  className="w-full h-10 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all font-mono"
-                  placeholder="เช่น 64012345678"
-                />
-              </div>
-
-              {/* Row 2: Prefix, First Name, Last Name */}
-              <div className="grid grid-cols-12 gap-3">
-                <div className="col-span-3 space-y-1.5">
-                  <label className="block text-[10px] font-bold text-ink uppercase tracking-wider">คำนำหน้า</label>
-                  <select
-                    required
-                    value={prefix}
-                    onChange={e => setPrefix(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none cursor-pointer"
-                  >
-                    <option value="" disabled>เลือก</option>
-                    <option value="นาย">นาย</option>
-                    <option value="นางสาว">นางสาว</option>
-                  </select>
-                </div>
-                <div className="col-span-4 space-y-1.5">
-                  <label className="block text-[10px] font-bold text-ink uppercase tracking-wider">ชื่อจริง</label>
-                  <input
-                    type="text"
-                    required
-                    value={firstName}
-                    onChange={e => setFirstName(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-2.5 text-xs bg-canvas text-ink placeholder:text-muted-soft focus:outline-none"
-                    placeholder="เช่น สมศักดิ์"
-                  />
-                </div>
-                <div className="col-span-5 space-y-1.5">
-                  <label className="block text-[10px] font-bold text-ink uppercase tracking-wider">นามสกุล</label>
-                  <input
-                    type="text"
-                    required
-                    value={lastName}
-                    onChange={e => setLastName(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-2.5 text-xs bg-canvas text-ink placeholder:text-muted-soft focus:outline-none"
-                    placeholder="เช่น เรียนดี"
-                  />
-                </div>
-              </div>
-
-              {/* Row 3: Class Year, Major Code, Room (Cascading Dropdowns) */}
-              <div className="bg-surface-soft border border-hairline p-3 rounded-md space-y-3">
-                <div className="flex items-center space-x-1.5 text-xs font-bold text-ink">
-                  <GraduationCap size={15} />
-                  <span>ระดับชั้นเรียน / สาขาวิชา / ห้อง</span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-muted font-bold">ชั้นปี</label>
-                    <select
-                      required
-                      value={selectedYear}
-                      onChange={e => {
-                        setSelectedYear(e.target.value);
-                        setSelectedMajorCode('');
-                        setSelectedRoom('');
-                      }}
-                      className="w-full h-9 border border-hairline rounded bg-canvas text-ink text-xs px-2 cursor-pointer focus:outline-none"
-                    >
-                      <option value="">-- เลือก --</option>
-                      {years.map(y => (
-                        <option key={y} value={y}>ปี {y}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-muted font-bold">รหัสสาขา</label>
-                    <select
-                      required
-                      disabled={!selectedYear}
-                      value={selectedMajorCode}
-                      onChange={e => {
-                        setSelectedMajorCode(e.target.value);
-                        setSelectedRoom('');
-                      }}
-                      className="w-full h-9 border border-hairline rounded bg-canvas text-ink text-xs px-2 cursor-pointer focus:outline-none disabled:opacity-50"
-                    >
-                      <option value="">-- เลือก --</option>
-                      {majorCodes.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-[10px] text-muted font-bold">ห้อง</label>
-                    <select
-                      required
-                      disabled={!selectedMajorCode}
-                      value={selectedRoom}
-                      onChange={e => setSelectedRoom(e.target.value)}
-                      className="w-full h-9 border border-hairline rounded bg-canvas text-ink text-xs px-2 cursor-pointer focus:outline-none disabled:opacity-50"
-                    >
-                      <option value="">-- เลือก --</option>
-                      {rooms.map(r => (
-                        <option key={r} value={r}>ห้อง {r}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                {majors.length === 0 && (
-                  <p className="text-[10px] text-error">
-                    *ไม่พบโครงสร้างสาขาวิชาในระบบ กรุณาเพิ่มสาขาวิชาในหน้าตั้งค่าระบบก่อน
-                  </p>
+          {/* Active tab info + search */}
+          {activeMajor && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm text-muted">
+                <ChevronRight size={15} className="text-primary" />
+                <span className="font-semibold text-ink">{tabFullLabel(activeMajor)}</span>
+                {heatmapData && (
+                  <span className="text-muted-soft">
+                    · {filteredStudents.length} คน · {sessions.length} สัปดาห์
+                  </span>
                 )}
               </div>
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="ค้นหาชื่อหรือรหัสนักศึกษา..."
+                className="h-9 w-64 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+              />
+            </div>
+          )}
+
+          {/* Table */}
+          {loading ? (
+            <div className="bg-canvas border border-hairline rounded-lg p-16 flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-muted font-medium">กำลังโหลดข้อมูล...</p>
+            </div>
+          ) : heatmapData && (
+            <div className="bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden">
+              {/* Column Headers (Week numbers) */}
+              <div className="border-b border-hairline overflow-x-auto">
+                <div className="flex items-center min-w-max">
+                  {/* Fixed left column header */}
+                  <div className="sticky left-0 z-20 bg-surface-soft w-72 shrink-0 px-4 py-2.5 border-r border-hairline flex items-center gap-1.5">
+                    <Users size={13} className="text-muted" />
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+                      นักศึกษา ({filteredStudents.length} คน)
+                    </span>
+                  </div>
+                  {/* Week columns */}
+                  <div className="flex gap-[3px] px-4 py-2.5 items-center">
+                    {sessions.map(session => (
+                      <div
+                        key={session.id}
+                        className="w-5 text-center shrink-0"
+                        title={`สัปดาห์ ${session.week_number}: ${session.title} — ${formatDate(session.date)}`}
+                      >
+                        <div className="text-[9px] font-bold text-muted leading-tight">{session.week_number}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Student rows */}
+              {filteredStudents.length === 0 ? (
+                <div className="py-12 text-center text-muted text-sm">ไม่พบนักศึกษาในกลุ่มนี้</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  {filteredStudents.map((student, idx) => {
+                    // Compute summary
+                    const totalPresent = sessions.filter(s => student.attendance[s.id] !== undefined).length;
+                    const rate = sessions.length > 0 ? Math.round((totalPresent / sessions.length) * 100) : 0;
+
+
+                    return (
+                      <div
+                        key={student.student_id}
+                        className={`flex items-center min-w-max border-b border-hairline last:border-b-0 transition-colors hover:bg-surface-soft/60 ${
+                          idx % 2 === 0 ? '' : 'bg-surface-soft/20'
+                        }`}
+                      >
+                        {/* Fixed: index + student info */}
+                        <div className="sticky left-0 z-10 bg-inherit w-72 shrink-0 px-4 py-2.5 border-r border-hairline flex items-center gap-3">
+                          <span className="text-[11px] text-muted-soft font-bold w-5 text-right shrink-0">
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-bold text-ink truncate">
+                              {student.prefix}{student.first_name} {student.last_name}
+                            </div>
+                            <div className="text-[10px] text-muted-soft font-mono">{student.student_id}</div>
+                          </div>
+                          {/* Mini stat */}
+                          <div className="text-right shrink-0">
+                            <div className={`text-xs font-extrabold ${
+                              rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-amber-500' : 'text-red-500'
+                            }`}>{rate}%</div>
+                            <div className="text-[9px] text-muted-soft">{totalPresent}/{sessions.length}</div>
+                          </div>
+                        </div>
+
+                        {/* Heatmap cells */}
+                        <div className="px-4 py-2.5">
+                          <HeatmapRow
+                            student={student}
+                            sessions={sessions}
+                            onHover={setTooltip}
+                            onLeave={() => setTooltip(null)}
+                            onClickCell={handleCellClick}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Footer summary */}
+              {filteredStudents.length > 0 && sessions.length > 0 && (
+                <div className="border-t border-hairline px-4 py-2.5 bg-surface-soft/40 flex items-center gap-4 text-[11px] text-muted overflow-x-auto">
+                  <div className="sticky left-0 w-72 shrink-0 flex items-center gap-3 font-bold text-ink bg-surface-soft/40">
+                    <span className="w-5" />
+                    <span>สรุปรายสัปดาห์</span>
+                  </div>
+                  <div className="flex gap-[3px]">
+                    {sessions.map(session => {
+                      const presentCount = filteredStudents.filter(s => s.attendance[session.id] !== undefined).length;
+                      const total = filteredStudents.length;
+                      const pct = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+                      const color = pct >= 80 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#f87171';
+                      return (
+                        <div
+                          key={session.id}
+                          className="w-5 h-5 rounded-[3px] shrink-0 flex items-center justify-center cursor-default"
+                          style={{ backgroundColor: color + '30', border: `1.5px solid ${color}` }}
+                          title={`ส${session.week_number}: ${presentCount}/${total} คน (${pct}%)`}
+                        >
+                          <span className="text-[7px] font-bold" style={{ color }}>
+                            {pct}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Modal แก้ไขสถานะเช็กชื่อและหมายเหตุ */}
+      {editingCell && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-canvas border border-hairline rounded-xl shadow-2xl p-6 w-full max-w-md space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-hairline pb-3">
+              <h3 className="font-bold text-lg text-ink flex items-center gap-2">
+                <span>📝 แก้ไขการเช็กชื่อ</span>
+              </h3>
+              <button
+                onClick={() => setEditingCell(null)}
+                className="text-muted hover:text-ink cursor-pointer p-1 rounded-md hover:bg-surface-soft border-0 bg-transparent"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            <div className="flex justify-end space-x-3 pt-2">
+            <div className="space-y-3.5 text-left">
+              {/* Student Details */}
+              <div className="bg-surface-soft p-3.5 rounded-lg border border-hairline space-y-1 text-xs">
+                <div><span className="font-bold text-ink">นักศึกษา:</span> {editingCell.student.prefix}{editingCell.student.first_name} {editingCell.student.last_name}</div>
+                <div><span className="font-bold text-ink">รหัสนักศึกษา:</span> <span className="font-mono">{editingCell.student.student_id}</span></div>
+                <div><span className="font-bold text-ink">สัปดาห์กิจกรรม:</span> สัปดาห์ที่ {editingCell.session.week_number} ({editingCell.session.title})</div>
+                <div><span className="font-bold text-ink">วันที่จัดกิจกรรม:</span> {formatDate(editingCell.session.date)}</div>
+              </div>
+
+              {/* Status Radio Toggles */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-ink">สถานะการเช็กชื่อ</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCell(prev => prev ? { ...prev, status: 'present' } : null)}
+                    className={`h-11 rounded-lg border text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                      editingCell.status === 'present'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700 font-bold shadow-sm shadow-emerald-100'
+                        : 'bg-canvas border-hairline text-muted hover:border-emerald-200'
+                    }`}
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>มาเรียน (Present)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingCell(prev => prev ? { ...prev, status: 'absent' } : null)}
+                    className={`h-11 rounded-lg border text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                      editingCell.status === 'absent'
+                        ? 'bg-rose-50 border-rose-300 text-rose-700 font-bold shadow-sm shadow-rose-100'
+                        : 'bg-canvas border-hairline text-muted hover:border-rose-200'
+                    }`}
+                  >
+                    <XCircle size={16} />
+                    <span>ขาดเรียน (Absent)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Remark Input */}
+              <div className="space-y-2">
+                <label htmlFor="remark-textarea" className="block text-xs font-bold text-ink">หมายเหตุ</label>
+                <textarea
+                  id="remark-textarea"
+                  value={editingCell.remark}
+                  onChange={e => setEditingCell(prev => prev ? { ...prev, remark: e.target.value } : null)}
+                  placeholder="กรอกหมายเหตุ เช่น ลาป่วย, ลากิจ, มาสาย, ลืมโทรศัพท์ ฯลฯ"
+                  rows={3}
+                  className="w-full border border-hairline rounded-lg px-3.5 py-2 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2 border-t border-hairline">
               <button
                 type="button"
-                onClick={() => setShowModal(false)}
-                className="px-4 py-2 border border-hairline text-ink rounded-md text-xs font-semibold hover:bg-surface-soft transition-colors cursor-pointer"
+                onClick={() => setEditingCell(null)}
+                className="h-10 px-5 border border-hairline rounded-lg text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer bg-transparent"
               >
                 ยกเลิก
               </button>
               <button
-                type="submit"
-                className="px-4 py-2 bg-primary hover:bg-primary-active text-white rounded-md text-xs font-semibold transition-colors cursor-pointer"
+                type="button"
+                onClick={handleSaveCell}
+                className="h-10 px-6 bg-primary hover:bg-primary-active text-white rounded-lg text-sm font-semibold shadow-md shadow-primary/20 transition-all cursor-pointer border-0"
               >
-                {modalMode === 'add' ? 'บันทึกเข้าตาราง' : 'บันทึกแก้ไข'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Custom Alert Modal */}
-      {alertDialog.show && (
-        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150 text-center">
-            <div className="space-y-2">
-              <h3 className="font-bold text-lg text-ink">{alertDialog.title}</h3>
-              <p className="text-sm text-muted">{alertDialog.message}</p>
-            </div>
-            <button
-              onClick={() => setAlertDialog({ ...alertDialog, show: false })}
-              className="w-full h-10 bg-primary hover:bg-primary-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
-            >
-              ตกลง
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Custom Confirm Modal */}
-      {confirmDialog.show && (
-        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="space-y-2 text-center">
-              <h3 className="font-bold text-lg text-ink">{confirmDialog.title}</h3>
-              <p className="text-sm text-muted">{confirmDialog.message}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                onClick={() => setConfirmDialog({ ...confirmDialog, show: false })}
-                className="h-10 border border-hairline rounded-md text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={() => {
-                  confirmDialog.onConfirm();
-                  setConfirmDialog({ ...confirmDialog, show: false });
-                }}
-                className="h-10 bg-error hover:bg-error-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
-              >
-                ยืนยัน
+                บันทึกข้อมูล
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Tooltip (portal-like fixed) */}
+      {tooltip && <Tooltip info={tooltip} />}
     </div>
   );
 }

@@ -29,7 +29,10 @@ export default function AdminSettings() {
     setMessage('');
     setErrorMsg('');
     try {
-      await axios.post('/api/settings', { sheet_id: sheetId, credentials_json: credentials });
+      await axios.post('/api/settings', { 
+        sheet_id: sheetId, 
+        credentials_json: credentials
+      });
       setMessage('บันทึกการตั้งค่าระบบเสร็จสิ้นสมบูรณ์!');
       setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
@@ -73,7 +76,7 @@ export default function AdminSettings() {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6 sm:space-y-8 animate-in fade-in duration-300">
+    <div className="w-full space-y-6 sm:space-y-8 animate-in fade-in duration-300">
       {/* Page Header */}
       <div>
         <h1 className="text-2xl md:text-4xl font-semibold text-ink tracking-tight">

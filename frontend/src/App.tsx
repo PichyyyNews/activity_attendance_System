@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Link, Outlet } from 'react-router-dom';
 import axios from 'axios';
-import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users } from 'lucide-react';
+import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users, Plus } from 'lucide-react';
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminSettings from './pages/admin/Settings';
 import AdminSessions from './pages/admin/Sessions';
@@ -33,23 +33,89 @@ function Footer() {
 function AdminLayout() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [sheetId, setSheetId] = useState('');
+  const [activeYear, setActiveYear] = useState('2569');
+  const [activeTerm, setActiveTerm] = useState('1');
+  const [settings, setSettings] = useState<any>(null);
+
+  // Custom academic years and terms states
+  const [academicYears, setAcademicYears] = useState<string[]>([]);
+  const [terms, setTerms] = useState<string[]>([]);
+  const [showYearModal, setShowYearModal] = useState(false);
+  const [newCustomYear, setNewCustomYear] = useState('');
+  const [newCustomTerm, setNewCustomTerm] = useState('1');
+  const [yearModalError, setYearModalError] = useState('');
+
   const [pin, setPin] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(
     sessionStorage.getItem('admin_authenticated') === 'true'
   );
   const [pinError, setPinError] = useState('');
 
-  // Fetch sheet_id for the shortcut button
+  // Fetch settings, academic years and terms
   useEffect(() => {
     if (!isAuthenticated) return;
-    axios.get('/api/settings')
-      .then(res => {
-        if (res.data && res.data.sheet_id) {
-          setSheetId(res.data.sheet_id);
+    
+    Promise.all([
+      axios.get('/api/settings'),
+      axios.get('/api/academic-years/list'),
+      axios.get('/api/terms')
+    ])
+      .then(([settingsRes, yearsRes, termsRes]) => {
+        const data = settingsRes.data;
+        if (data) {
+          setSettings(data);
+          setSheetId(data.sheet_id || '');
+          setActiveYear(data.academic_year || '2569');
+          setActiveTerm(data.term || '1');
         }
+        setAcademicYears(yearsRes.data || []);
+        setTerms(termsRes.data || []);
       })
-      .catch(err => console.error('Error fetching settings for shortcut:', err));
+      .catch(err => console.error('Error fetching settings and lookup lists:', err));
   }, [isAuthenticated]);
+
+  const handleSemesterChange = async (year: string, term: string) => {
+    try {
+      await axios.post('/api/settings', {
+        sheet_id: settings?.sheet_id || '',
+        credentials_json: settings?.credentials_json || '',
+        academic_year: year,
+        term: term
+      });
+      setActiveYear(year);
+      setActiveTerm(term);
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to change semester:', err);
+    }
+  };
+
+  const handleAddYearSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setYearModalError('');
+
+    const yearVal = newCustomYear.trim();
+    if (!/^\d{4}$/.test(yearVal)) {
+      setYearModalError('ปีการศึกษาต้องเป็นตัวเลข 4 หลัก (เช่น 2570)');
+      return;
+    }
+
+    try {
+      await axios.post('/api/settings', {
+        sheet_id: settings?.sheet_id || '',
+        credentials_json: settings?.credentials_json || '',
+        academic_year: yearVal,
+        term: newCustomTerm
+      });
+      setActiveYear(yearVal);
+      setActiveTerm(newCustomTerm);
+      setShowYearModal(false);
+      setNewCustomYear('');
+      window.location.reload();
+    } catch (err: any) {
+      setYearModalError('เกิดข้อผิดพลาดในการบันทึกปีการศึกษาใหม่');
+    }
+  };
 
   const sheetUrl = sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : null;
 
@@ -146,141 +212,313 @@ function AdminLayout() {
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas">
-      {/* Top Nav */}
-      <header className="sticky top-0 z-40 bg-canvas/80 backdrop-blur-md border-b border-hairline w-full">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center space-x-3">
-            <Link to="/admin" className="flex items-center space-x-2.5">
-              <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-                <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
-              </div>
-              <span className="font-extrabold text-lg text-ink tracking-tight">attendance.io</span>
-            </Link>
-            <span className="bg-surface-soft border border-hairline px-2 py-0.5 rounded text-[11px] font-semibold text-muted tracking-wide uppercase">
-              Admin
-            </span>
-          </div>
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-40 bg-canvas/80 backdrop-blur-md border-b border-hairline w-full h-16 flex items-center justify-between px-6 shrink-0">
+        {/* Left branding */}
+        <div className="flex items-center space-x-3">
+          <Link to="/admin" className="flex items-center space-x-2.5">
+            <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+              <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
+            </div>
+            <span className="font-extrabold text-lg text-ink tracking-tight">attendance.io</span>
+          </Link>
+          <span className="bg-surface-soft border border-hairline px-2 py-0.5 rounded text-[10px] font-bold text-muted tracking-wide uppercase">
+            Admin
+          </span>
+        </div>
 
-          {/* Desktop Navigation (nav-pill-group style) */}
-          <nav className="hidden md:flex items-center bg-surface-soft p-1 rounded-full border border-hairline">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  `px-4 py-1.5 text-sm font-semibold rounded-full transition-all duration-200 ${
-                    isActive
-                      ? 'bg-canvas text-ink shadow-[0_2px_4px_rgba(0,0,0,0.06)]'
-                      : 'text-muted hover:text-ink'
-                  }`
-                }
-              >
-                <div className="flex items-center space-x-1.5">
-                  <item.icon size={15} />
-                  <span>{item.label}</span>
-                </div>
-              </NavLink>
-            ))}
-          </nav>
-
-          {/* Right Action Button Cluster */}
-          <div className="hidden md:flex items-center space-x-3">
-            {sheetUrl && (
-              <a 
-                href={sheetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 border border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100 rounded-md text-sm font-semibold transition-colors flex items-center space-x-1.5"
-              >
-                <FileSpreadsheet size={15} />
-                <span>เปิด Google Sheet</span>
-              </a>
-            )}
-            <Link 
-              to="/" 
-              className="px-4 py-2 border border-hairline text-ink rounded-md text-sm font-semibold hover:bg-surface-soft transition-colors flex items-center space-x-1.5"
+        {/* Right Action buttons */}
+        <div className="flex items-center space-x-3">
+          {sheetUrl && (
+            <a 
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:flex px-3.5 py-1.5 border border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100 rounded-md text-xs font-semibold transition-colors items-center space-x-1.5"
             >
-              <span>ตรวจสอบรายชื่อ</span>
-              <ArrowRight size={14} />
-            </Link>
-          </div>
+              <FileSpreadsheet size={14} />
+              <span>เปิด Google Sheet</span>
+            </a>
+          )}
+          <Link 
+            to="/" 
+            className="hidden md:flex px-3.5 py-1.5 border border-hairline text-ink rounded-md text-xs font-semibold hover:bg-surface-soft transition-colors items-center space-x-1.5"
+          >
+            <span>ตรวจสอบรายชื่อ</span>
+            <ArrowRight size={13} />
+          </Link>
 
-          {/* Mobile menu button */}
-          <div className="md:hidden flex items-center">
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="w-9 h-9 flex items-center justify-center rounded-full border border-hairline hover:bg-surface-soft text-ink transition-colors"
-              aria-label="Toggle Menu"
-            >
-              {isMenuOpen ? <X size={18} /> : <Menu size={18} />}
-            </button>
-          </div>
+          {/* Hamburger Menu on Mobile */}
+          <button
+            onClick={() => setIsMenuOpen(true)}
+            className="md:hidden w-9 h-9 flex items-center justify-center rounded-full border border-hairline hover:bg-surface-soft text-ink transition-colors"
+            aria-label="Open Menu"
+          >
+            <Menu size={18} />
+          </button>
         </div>
       </header>
 
-      {/* Mobile Drawer (Full-screen sheet style) */}
-      {isMenuOpen && (
-        <div className="fixed inset-0 top-16 z-30 bg-canvas/95 backdrop-blur-md md:hidden animate-in fade-in slide-in-from-top-5 duration-200 border-b border-hairline">
-          <nav className="flex flex-col p-6 space-y-4">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                onClick={() => setIsMenuOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center space-x-3 p-3.5 rounded-lg text-base font-semibold border transition-all ${
-                    isActive
-                      ? 'bg-primary text-white border-primary'
-                      : 'bg-surface-soft text-ink border-hairline hover:bg-surface-strong'
-                  }`
-                }
+      {/* Main Container below navbar */}
+      <div className="flex-grow flex flex-col md:flex-row min-h-0">
+        {/* Desktop Left Sidebar */}
+        <aside className="hidden md:flex flex-col w-64 bg-canvas border-r border-hairline sticky top-16 h-[calc(100vh-64px)] shrink-0 overflow-y-auto p-4 justify-between animate-in fade-in duration-300">
+          <div className="space-y-6">
+            {/* Global Academic Year & Term Selector (25% Larger & First item) */}
+            <div className="bg-surface-soft border border-hairline p-4 rounded-lg space-y-3 shadow-xs">
+              <div className="text-[10px] font-bold text-muted uppercase tracking-wider">ปีการศึกษา / เทอม ปัจจุบัน</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col bg-canvas border border-hairline p-2 rounded-md">
+                  <span className="text-[9px] font-bold text-muted-soft uppercase">ปีการศึกษา</span>
+                  <select 
+                    value={activeYear} 
+                    onChange={e => handleSemesterChange(e.target.value, activeTerm)}
+                    className="bg-transparent border-none focus:ring-0 focus:outline-none text-ink font-extrabold text-sm cursor-pointer w-full p-0 mt-0.5"
+                  >
+                    {Array.from(new Set([activeYear, ...academicYears])).sort((a, b) => b.localeCompare(a)).map(yr => (
+                      <option key={yr} value={yr}>{yr}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col bg-canvas border border-hairline p-2 rounded-md">
+                  <span className="text-[9px] font-bold text-muted-soft uppercase">เทอม</span>
+                  <select 
+                    value={activeTerm} 
+                    onChange={e => handleSemesterChange(activeYear, e.target.value)}
+                    className="bg-transparent border-none focus:ring-0 focus:outline-none text-ink font-extrabold text-sm cursor-pointer w-full p-0 mt-0.5"
+                  >
+                    {Array.from(new Set([activeTerm, ...terms])).sort((a, b) => a.localeCompare(b)).map(tm => (
+                      <option key={tm} value={tm}>{tm}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowYearModal(true)}
+                className="w-full py-2 bg-canvas hover:bg-surface-strong border border-hairline text-ink text-xs font-bold rounded-md flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
               >
-                <item.icon size={20} />
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
-            
-            <div className="border-t border-hairline pt-4 mt-2 space-y-3">
-              {sheetUrl && (
-                <a
-                  href={sheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="flex items-center justify-between p-3.5 rounded-lg text-base font-semibold border border-emerald-200 bg-emerald-50/30 text-emerald-700 hover:bg-emerald-50 transition-all"
-                >
-                  <span className="flex items-center space-x-3">
-                    <FileSpreadsheet size={20} />
-                    <span>เปิด Google Sheet</span>
-                  </span>
-                  <ArrowRight size={18} />
-                </a>
-              )}
-              <Link
-                to="/"
-                onClick={() => setIsMenuOpen(false)}
-                className="flex items-center justify-between p-3.5 rounded-lg text-base font-semibold border border-hairline bg-canvas text-ink hover:bg-surface-soft transition-all"
-              >
-                <span>หน้าตรวจสอบการเช็กชื่อ</span>
-                <ArrowRight size={18} />
-              </Link>
+                <Plus size={13} />
+                <span>เพิ่มปีการศึกษา/เทอมเอง</span>
+              </button>
             </div>
-          </nav>
+
+            <div className="space-y-3">
+              <div className="text-[10px] font-bold text-muted uppercase tracking-wider px-3">เมนูการใช้งาน</div>
+              <nav className="flex flex-col space-y-1">
+                {navItems.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      `flex items-center space-x-3 px-3 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                        isActive
+                          ? 'bg-primary text-white shadow-md'
+                          : 'text-muted hover:text-ink hover:bg-surface-soft'
+                      }`
+                    }
+                  >
+                    <item.icon size={18} />
+                    <span>{item.label}</span>
+                  </NavLink>
+                ))}
+              </nav>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-4 border-t border-hairline px-3">
+            <div className="text-[10px] text-muted-soft">
+              ระบบเช็กชื่อกิจกรรมวิทยาลัย • v1.0.0
+            </div>
+          </div>
+        </aside>
+
+        {/* Mobile slide-over drawer menu */}
+        {isMenuOpen && (
+          <div className="fixed inset-0 z-50 md:hidden flex">
+            <div 
+              onClick={() => setIsMenuOpen(false)}
+              className="fixed inset-0 bg-surface-dark/25 backdrop-blur-sm transition-opacity"
+            />
+            <div className="relative flex flex-col w-64 max-w-xs bg-canvas h-full p-6 justify-between shadow-2xl animate-in slide-in-from-left duration-200 border-r border-hairline">
+              <div className="space-y-8">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+                      <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
+                    </div>
+                    <span className="font-extrabold text-base text-ink tracking-tight">attendance.io</span>
+                  </div>
+                  <button
+                    onClick={() => setIsMenuOpen(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <nav className="flex flex-col space-y-1">
+                  {navItems.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.end}
+                      onClick={() => setIsMenuOpen(false)}
+                      className={({ isActive }) =>
+                        `flex items-center space-x-3 px-4 py-2.5 text-sm font-semibold rounded-lg transition-all ${
+                          isActive
+                            ? 'bg-primary text-white shadow-md'
+                            : 'text-muted hover:text-ink hover:bg-surface-soft'
+                        }`
+                      }
+                    >
+                      <item.icon size={18} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </nav>
+              </div>
+
+              <div className="space-y-6 pt-6 border-t border-hairline">
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider">ปีการศึกษา / เทอมที่แสดง</label>
+                  <div className="grid grid-cols-2 gap-2 bg-surface-soft p-1.5 rounded-lg border border-hairline">
+                    <div className="flex flex-col px-1.5 py-0.5">
+                      <span className="text-[9px] text-muted-soft">ปีการศึกษา</span>
+                      <select 
+                        value={activeYear} 
+                        onChange={e => {
+                          handleSemesterChange(e.target.value, activeTerm);
+                          setIsMenuOpen(false);
+                        }}
+                        className="bg-transparent border-none focus:ring-0 focus:outline-none text-ink font-bold text-xs cursor-pointer w-full p-0"
+                      >
+                        {Array.from(new Set([activeYear, ...academicYears])).sort((a, b) => b.localeCompare(a)).map(yr => (
+                          <option key={yr} value={yr}>{yr}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-col px-1.5 py-0.5 border-l border-hairline">
+                      <span className="text-[9px] text-muted-soft">เทอม</span>
+                      <select 
+                        value={activeTerm} 
+                        onChange={e => {
+                          handleSemesterChange(activeYear, e.target.value);
+                          setIsMenuOpen(false);
+                        }}
+                        className="bg-transparent border-none focus:ring-0 focus:outline-none text-ink font-bold text-xs cursor-pointer w-full p-0"
+                      >
+                        {Array.from(new Set([activeTerm, ...terms])).sort((a, b) => a.localeCompare(b)).map(tm => (
+                          <option key={tm} value={tm}>{tm}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {sheetUrl && (
+                    <a 
+                      href={sheetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setIsMenuOpen(false)}
+                      className="w-full py-2 px-3 border border-emerald-200 text-emerald-700 bg-emerald-50/50 hover:bg-emerald-100 rounded-md text-xs font-semibold transition-colors flex items-center justify-center space-x-2"
+                    >
+                      <FileSpreadsheet size={14} />
+                      <span>เปิด Google Sheet</span>
+                    </a>
+                  )}
+                  <Link 
+                    to="/" 
+                    onClick={() => setIsMenuOpen(false)}
+                    className="w-full py-2 px-3 border border-hairline text-ink rounded-md text-xs font-semibold hover:bg-surface-soft transition-colors flex items-center justify-center space-x-2"
+                  >
+                    <span>ตรวจสอบรายชื่อ</span>
+                    <ArrowRight size={13} />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Content Panel */}
+        <div className="flex-grow flex flex-col min-w-0">
+          <main className="flex-grow px-4 sm:px-6 py-6 md:py-8 max-w-7xl w-full mx-auto">
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <Outlet />
+            </div>
+          </main>
+          
+          <Footer />
+        </div>
+      </div>
+
+      {/* Custom Add Academic Year Modal */}
+      {showYearModal && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="space-y-1 text-center">
+              <h3 className="font-bold text-lg text-ink">เพิ่มปีการศึกษาใหม่</h3>
+              <p className="text-xs text-muted">กำหนดปีการศึกษาและเทอมที่ต้องการเปิดใช้งานระบบ</p>
+            </div>
+
+            {yearModalError && (
+              <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md text-center">
+                {yearModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleAddYearSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ปีการศึกษา (ตัวเลข 4 หลัก)</label>
+                <input
+                  required
+                  type="text"
+                  maxLength={4}
+                  placeholder="เช่น 2570"
+                  value={newCustomYear}
+                  onChange={e => setNewCustomYear(e.target.value.replace(/\D/g, ''))}
+                  className="w-full h-11 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm font-bold placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">เทอมการศึกษา</label>
+                <select
+                  value={newCustomTerm}
+                  onChange={e => setNewCustomTerm(e.target.value)}
+                  className="w-full h-11 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm font-bold focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                >
+                  <option value="1">เทอม 1</option>
+                  <option value="2">เทอม 2</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowYearModal(false);
+                    setNewCustomYear('');
+                    setYearModalError('');
+                  }}
+                  className="h-10 border border-hairline rounded-md text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="h-10 bg-primary hover:bg-primary-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  บันทึก
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
-
-      {/* Main Content Area */}
-      <main className="flex-grow max-w-7xl w-full mx-auto px-2.5 sm:px-6 py-6 md:py-16">
-        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <Outlet />
-        </div>
-      </main>
-
-      {/* Footer */}
-      <Footer />
     </div>
   );
 }
@@ -291,7 +529,7 @@ function App() {
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<UserDashboard />} />
-        <Route path="/scan/:sessionId" element={<UserScanForm />} />
+        <Route path="/scan/:token" element={<UserScanForm />} />
 
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>

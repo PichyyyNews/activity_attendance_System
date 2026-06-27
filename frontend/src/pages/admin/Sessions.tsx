@@ -79,7 +79,7 @@ const isValidBeDate = (d: string, m: string, y: string) => {
 };
 
 export default function AdminSessions() {
-  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null }[]>([]);
+  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string }[]>([]);
   const [showQR, setShowQR] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
@@ -113,16 +113,19 @@ export default function AdminSessions() {
   };
 
   const copyToClipboard = (id: number) => {
-    navigator.clipboard.writeText(qrUrl(id));
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
+    const session = sessions.find(s => s.id === id);
+    if (session) {
+      navigator.clipboard.writeText(qrUrl(session.token));
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    }
   };
 
-  const qrUrl = (id: number) => {
+  const qrUrl = (token: string) => {
     const baseUrl = import.meta.env.VITE_APP_URL || window.location.origin;
     // Strip trailing slash if present
     const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-    return `${cleanBaseUrl}/scan/${id}`;
+    return `${cleanBaseUrl}/scan/${token}`;
   };
 
   const handleDownloadQR = (sessionId: number) => {
@@ -779,14 +782,14 @@ export default function AdminSessions() {
 
             {/* QR Wrapper (Embedded UI Card Chrome) */}
             <div id="qr-container" className="bg-canvas border border-hairline rounded-lg p-5 shadow-[0_4px_12px_rgba(0,0,0,0.03)] flex justify-center items-center w-full aspect-square max-w-[240px] mb-6">
-              <QRCodeSVG value={qrUrl(showQR)} size={200} level="H" includeMargin={false} />
+              <QRCodeSVG value={qrUrl(sessions.find((s) => s.id === showQR)?.token || '')} size={200} level="H" includeMargin={false} />
             </div>
 
             {/* Link Text and Copy */}
             <div className="w-full bg-surface-soft border border-hairline p-3 rounded-md flex items-center justify-between text-xs mb-4">
-              <span className="text-muted truncate mr-2 font-mono">{qrUrl(showQR)}</span>
+              <span className="text-muted truncate mr-2 font-mono">{qrUrl(sessions.find((s) => s.id === showQR)?.token || '')}</span>
               <button
-                onClick={() => copyToClipboard(showQR)}
+                onClick={() => showQR && copyToClipboard(showQR)}
                 className="text-primary hover:text-primary-active font-semibold flex-shrink-0"
               >
                 {copied === showQR ? 'คัดลอกแล้ว' : 'คัดลอก'}

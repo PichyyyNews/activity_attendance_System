@@ -4,24 +4,27 @@ import axios from 'axios';
 import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 export default function UserScanForm() {
-  const { sessionId } = useParams();
-  const [majors, setMajors] = useState<{ id: number; class_year: string; major_code: string; room: string }[]>([]);
+  const { token } = useParams();
+  const [majors, setMajors] = useState<{ id: number; level: string; year: string; major_name: string; major_code: string; room: string }[]>([]);
   
   // Form states
   const [prefix, setPrefix] = useState(() => localStorage.getItem('attendance_prefix') || '');
   const [firstName, setFirstName] = useState(() => localStorage.getItem('attendance_firstName') || '');
   const [lastName, setLastName] = useState(() => localStorage.getItem('attendance_lastName') || '');
   const [studentId, setStudentId] = useState(() => localStorage.getItem('attendance_studentId') || '');
-  const [selectedYear, setSelectedYear] = useState(() => localStorage.getItem('attendance_selectedYear') || '');
-  const [selectedMajorCode, setSelectedMajorCode] = useState(() => localStorage.getItem('attendance_selectedMajorCode') || '');
-  const [selectedRoom, setSelectedRoom] = useState(() => localStorage.getItem('attendance_selectedRoom') || '');
+  const [selectedMajorId, setSelectedMajorId] = useState(() => localStorage.getItem('attendance_selectedMajorId') || '');
+  const [level, setLevel] = useState(() => localStorage.getItem('attendance_level') || 'ปวช');
+  const [selectedYear, setSelectedYear] = useState(() => localStorage.getItem('attendance_selectedYear') || '1');
+  const [majorName, setMajorName] = useState(() => localStorage.getItem('attendance_majorName') || 'เทคนิคคอมพิวเตอร์');
+  const [selectedMajorCode, setSelectedMajorCode] = useState(() => localStorage.getItem('attendance_selectedMajorCode') || 'ชทค');
+  const [selectedRoom, setSelectedRoom] = useState(() => localStorage.getItem('attendance_selectedRoom') || '1');
   const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('attendance_remember') !== 'false');
   const [error, setError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [autoFilled, setAutoFilled] = useState(false);
 
   // Session status states
-  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null } | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string } | null>(null);
   const [isSessionClosed, setIsSessionClosed] = useState(false);
   const [sessionClosedReason, setSessionClosedReason] = useState('');
   const [loadingSession, setLoadingSession] = useState(true);
@@ -32,11 +35,11 @@ export default function UserScanForm() {
       .then(res => setMajors(res.data || []))
       .catch(err => console.error('Error fetching majors:', err));
 
-    // Fetch session details and accurate server time if sessionId exists
-    if (sessionId) {
+    // Fetch session details and accurate server time if token exists
+    if (token) {
       setLoadingSession(true);
       Promise.all([
-        axios.get(`/api/sessions/${sessionId}`),
+        axios.get(`/api/sessions/by-token/${token}`),
         axios.get('/api/time')
       ])
         .then(([sessionRes, timeRes]) => {
@@ -62,7 +65,7 @@ export default function UserScanForm() {
     } else {
       setLoadingSession(false);
     }
-  }, [sessionId]);
+  }, [token]);
 
   useEffect(() => {
     if (studentId.length === 11) {
@@ -72,9 +75,18 @@ export default function UserScanForm() {
             setPrefix(res.data.prefix || 'นาย');
             setFirstName(res.data.first_name);
             setLastName(res.data.last_name);
-            setSelectedYear(res.data.class_year);
+            setLevel(res.data.level);
+            setSelectedYear(res.data.year);
+            setMajorName(res.data.major_name);
             setSelectedMajorCode(res.data.major_code);
             setSelectedRoom(res.data.room);
+            
+            const matched = majors.find(m => m.level === res.data.level && m.year === res.data.year && m.major_code === res.data.major_code && m.room === res.data.room);
+            if (matched) {
+              setSelectedMajorId(matched.id.toString());
+            } else {
+              setSelectedMajorId('');
+            }
             setAutoFilled(true);
             setTimeout(() => setAutoFilled(false), 5000);
           }
@@ -83,13 +95,13 @@ export default function UserScanForm() {
           console.log('Student not found in pre-registered roster:', err.response?.data?.error || err.message);
         });
     }
-  }, [studentId]);
+  }, [studentId, majors]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!sessionId) {
+    if (!sessionInfo) {
       setError('ไม่พบคลาสกิจกรรมที่ระบุ');
       return;
     }
@@ -109,19 +121,21 @@ export default function UserScanForm() {
       return;
     }
 
-    if (!selectedYear || !selectedMajorCode || !selectedRoom) {
-      setError('กรุณาเลือกข้อมูลชั้นปี สาขาวิชา และห้องเรียนให้ครบถ้วน');
+    if (!level || !selectedYear || !majorName || !selectedMajorCode || !selectedRoom) {
+      setError('กรุณาเลือกข้อมูลกลุ่มเรียน / สาขาวิชาให้ครบถ้วน');
       return;
     }
 
     try {
       await axios.post('/api/attendances', {
-        session_id: parseInt(sessionId),
+        session_id: sessionInfo.id,
         prefix: prefix,
         first_name: firstName,
         last_name: lastName,
         student_id: studentId,
-        class_year: selectedYear,
+        level,
+        year: selectedYear,
+        major_name: majorName,
         major_code: selectedMajorCode,
         room: selectedRoom
       });
@@ -131,7 +145,10 @@ export default function UserScanForm() {
         localStorage.setItem('attendance_firstName', firstName);
         localStorage.setItem('attendance_lastName', lastName);
         localStorage.setItem('attendance_studentId', studentId);
+        localStorage.setItem('attendance_selectedMajorId', selectedMajorId);
+        localStorage.setItem('attendance_level', level);
         localStorage.setItem('attendance_selectedYear', selectedYear);
+        localStorage.setItem('attendance_majorName', majorName);
         localStorage.setItem('attendance_selectedMajorCode', selectedMajorCode);
         localStorage.setItem('attendance_selectedRoom', selectedRoom);
         localStorage.setItem('attendance_remember', 'true');
@@ -140,7 +157,10 @@ export default function UserScanForm() {
         localStorage.removeItem('attendance_firstName');
         localStorage.removeItem('attendance_lastName');
         localStorage.removeItem('attendance_studentId');
+        localStorage.removeItem('attendance_selectedMajorId');
+        localStorage.removeItem('attendance_level');
         localStorage.removeItem('attendance_selectedYear');
+        localStorage.removeItem('attendance_majorName');
         localStorage.removeItem('attendance_selectedMajorCode');
         localStorage.removeItem('attendance_selectedRoom');
         localStorage.setItem('attendance_remember', 'false');
@@ -152,21 +172,7 @@ export default function UserScanForm() {
     }
   };
 
-  const years = Array.from(new Set(majors.map(m => m.class_year))).sort();
-  const majorCodes = Array.from(
-    new Set(
-      majors
-        .filter(m => m.class_year === selectedYear)
-        .map(m => m.major_code)
-    )
-  ).sort();
-  const rooms = Array.from(
-    new Set(
-      majors
-        .filter(m => m.class_year === selectedYear && m.major_code === selectedMajorCode)
-        .map(m => m.room)
-    )
-  ).sort();
+
 
   return (
     <div className="min-h-screen bg-canvas flex flex-col justify-between py-4 px-3 sm:py-12 sm:px-6">
@@ -188,7 +194,7 @@ export default function UserScanForm() {
           </div>
           <div className="space-y-2">
             <h1 className="text-2xl font-bold text-ink tracking-tight">เช็กชื่อสำเร็จแล้ว!</h1>
-            <p className="text-muted text-sm">ระบบได้บันทึกข้อมูลการเข้าเรียนกิจกรรมสัปดาห์ที่ {sessionId} เรียบร้อยแล้ว</p>
+            <p className="text-muted text-sm">ระบบได้บันทึกข้อมูลการเข้าเรียนกิจกรรมสัปดาห์ที่ {sessionInfo?.week_number} เรียบร้อยแล้ว</p>
           </div>
 
           <div className="bg-surface-soft border border-hairline rounded-md p-4 text-left text-sm space-y-2.5">
@@ -200,9 +206,13 @@ export default function UserScanForm() {
               <span className="text-muted">รหัสนักศึกษา</span>
               <span className="font-mono font-semibold text-ink">{studentId}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted">สาขาวิชา / ห้องเรียน</span>
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">กลุ่มเรียน</span>
               <span className="font-semibold text-ink">{selectedYear}{selectedMajorCode}{selectedRoom}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">ระดับชั้น / สาขาวิชา</span>
+              <span className="font-semibold text-ink text-right text-xs">{level} • {majorName}</span>
             </div>
           </div>
 
@@ -230,7 +240,7 @@ export default function UserScanForm() {
             </div>
             <div className="space-y-1">
               <span className="inline-block text-[10px] sm:text-[11px] bg-primary text-white font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">
-                สัปดาห์ที่ {sessionId || 'พิเศษ'} {sessionInfo ? `(${sessionInfo.title})` : ''}
+                สัปดาห์ที่ {sessionInfo?.week_number || ''} {sessionInfo ? `(${sessionInfo.title})` : ''}
               </span>
               <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight mt-1">เช็กชื่อเข้าร่วมกิจกรรม</h1>
               {sessionInfo && sessionInfo.close_at && !isSessionClosed && (
@@ -373,60 +383,35 @@ export default function UserScanForm() {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ห้องเรียน / สาขาวิชา</label>
-              <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                <div>
-                  <select
-                    required
-                    value={selectedYear}
-                    onChange={e => {
-                      setSelectedYear(e.target.value);
-                      setSelectedMajorCode('');
-                      setSelectedRoom('');
-                    }}
-                    disabled={isSessionClosed}
-                    className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
-                  >
-                    <option value="" disabled>ชั้นปี</option>
-                    {years.map(y => (
-                      <option key={y} value={y}>ปี {y}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <select
-                    required
-                    disabled={!selectedYear || isSessionClosed}
-                    value={selectedMajorCode}
-                    onChange={e => {
-                      setSelectedMajorCode(e.target.value);
-                      setSelectedRoom('');
-                    }}
-                    className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
-                  >
-                    <option value="" disabled>สาขา</option>
-                    {majorCodes.map(code => (
-                      <option key={code} value={code}>{code}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <select
-                    required
-                    disabled={!selectedMajorCode || isSessionClosed}
-                    value={selectedRoom}
-                    onChange={e => setSelectedRoom(e.target.value)}
-                    className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
-                  >
-                    <option value="" disabled>ห้อง</option>
-                    {rooms.map(r => (
-                      <option key={r} value={r}>ห้อง {r}</option>
-                    ))}
-                  </select>
-                 </div>
-              </div>
+              <label className="block text-xs font-semibold text-ink uppercase tracking-wider">กลุ่มเรียน / สาขาวิชา</label>
+              <select
+                required
+                value={selectedMajorId}
+                onChange={e => {
+                  const mId = e.target.value;
+                  setSelectedMajorId(mId);
+                  const found = majors.find(m => m.id.toString() === mId);
+                  if (found) {
+                    setLevel(found.level);
+                    setSelectedYear(found.year);
+                    setMajorName(found.major_name);
+                    setSelectedMajorCode(found.major_code);
+                    setSelectedRoom(found.room);
+                  }
+                }}
+                disabled={isSessionClosed}
+                className="w-full h-11 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer disabled:bg-surface-soft disabled:text-muted"
+              >
+                <option value="" disabled>-- เลือกกลุ่มเรียน / สาขาวิชา --</option>
+                {majors.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    [{m.level}] ปี {m.year} {m.major_name} กลุ่ม {m.room} ({m.year}{m.major_code}{m.room})
+                  </option>
+                ))}
+                {majors.length === 0 && (
+                  <option value="">ไม่มีข้อมูลชั้นเรียนในระบบ</option>
+                )}
+              </select>
             </div>
 
             <div className="flex items-center space-x-2 py-0.5">

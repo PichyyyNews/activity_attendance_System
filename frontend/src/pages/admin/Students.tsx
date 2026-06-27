@@ -15,7 +15,8 @@ import {
   Check,
   ShieldAlert,
   Save,
-  X
+  X,
+  Plus
 } from 'lucide-react';
 
 interface Student {
@@ -24,7 +25,9 @@ interface Student {
   prefix: string;
   first_name: string;
   last_name: string;
-  class_year: string;
+  level: string;
+  year: string;
+  major_name: string;
   major_code: string;
   room: string;
   created_at: string;
@@ -32,7 +35,9 @@ interface Student {
 
 interface Major {
   id: number;
-  class_year: string;
+  level: string;
+  year: string;
+  major_name: string;
   major_code: string;
   room: string;
 }
@@ -43,14 +48,18 @@ export default function AdminStudents() {
   const [loadingList, setLoadingList] = useState(false);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
   const [filterYear, setFilterYear] = useState('');
   const [filterMajor, setFilterMajor] = useState('');
   const [filterRoom, setFilterRoom] = useState('');
 
   // Import form state
   const [majors, setMajors] = useState<Major[]>([]);
+  const [selectedMajorId, setSelectedMajorId] = useState('');
+  const [level, setLevel] = useState('ปวช');
   const [classYear, setClassYear] = useState('1');
-  const [majorCode, setMajorCode] = useState('');
+  const [majorName, setMajorName] = useState('เทคนิคคอมพิวเตอร์');
+  const [majorCode, setMajorCode] = useState('ชทค');
   const [room, setRoom] = useState('1');
   
   const [inputIds, setInputIds] = useState('');
@@ -59,6 +68,29 @@ export default function AdminStudents() {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Academic Year Management States (CRUD)
+  interface AcademicYear { id: number; year: string; term: string; is_active: number; }
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+  const [loadingYears, setLoadingYears] = useState(false);
+
+  // Add Academic Year Modal
+  const [showAddYearModal, setShowAddYearModal] = useState(false);
+  const [newYear, setNewYear] = useState('');
+  const [newTerm, setNewTerm] = useState('1');
+  const [addYearError, setAddYearError] = useState('');
+  const [addYearLoading, setAddYearLoading] = useState(false);
+
+  // Edit Academic Year Modal
+  const [showEditYearModal, setShowEditYearModal] = useState(false);
+  const [editingYear, setEditingYear] = useState<AcademicYear | null>(null);
+  const [editYear, setEditYear] = useState('');
+  const [editTerm, setEditTerm] = useState('1');
+  const [editYearError, setEditYearError] = useState('');
+  const [editYearLoading, setEditYearLoading] = useState(false);
+
+  const [yearActionMsg, setYearActionMsg] = useState('');
+  const [yearActionError, setYearActionError] = useState('');
   
   // Edit Student Modal States
   const [showEditModal, setShowEditModal] = useState(false);
@@ -67,7 +99,10 @@ export default function AdminStudents() {
   const [editPrefix, setEditPrefix] = useState('');
   const [editFirstName, setEditFirstName] = useState('');
   const [editLastName, setEditLastName] = useState('');
+  const [editMajorId, setEditMajorId] = useState('');
+  const [editLevel, setEditLevel] = useState('');
   const [editClassYear, setEditClassYear] = useState('');
+  const [editMajorName, setEditMajorName] = useState('');
   const [editMajorCode, setEditMajorCode] = useState('');
   const [editRoom, setEditRoom] = useState('');
   const [editModalError, setEditModalError] = useState('');
@@ -76,13 +111,16 @@ export default function AdminStudents() {
   const [confirmDialog, setConfirmDialog] = useState<{ show: boolean; title: string; message: string; onConfirm: () => void }>({ show: false, title: '', message: '', onConfirm: () => {} });
 
   // States for adding a new major/room
+  const [newLevel, setNewLevel] = useState('ปวช');
   const [newClassYear, setNewClassYear] = useState('1');
-  const [newMajorCode, setNewMajorCode] = useState('');
+  const [newMajorName, setNewMajorName] = useState('เทคนิคคอมพิวเตอร์');
+  const [newMajorCode, setNewMajorCode] = useState('ชทค');
   const [newRoom, setNewRoom] = useState('1');
   const [majorError, setMajorError] = useState('');
   const [majorSuccess, setMajorSuccess] = useState('');
 
   // Unique majors list for filtering
+  const [uniqueLevels, setUniqueLevels] = useState<string[]>([]);
   const [uniqueYears, setUniqueYears] = useState<string[]>([]);
   const [uniqueMajors, setUniqueMajors] = useState<string[]>([]);
   const [uniqueRooms, setUniqueRooms] = useState<string[]>([]);
@@ -100,27 +138,133 @@ export default function AdminStudents() {
   const fetchMajors = async () => {
     try {
       const res = await axios.get('/api/majors');
-      setMajors(res.data || []);
-      if (res.data && res.data.length > 0) {
-        setClassYear(res.data[0].class_year);
-        setMajorCode(res.data[0].major_code);
-        setRoom(res.data[0].room);
+      const data = res.data || [];
+      setMajors(data);
+      if (data.length > 0) {
+        setSelectedMajorId(data[0].id.toString());
+        setLevel(data[0].level);
+        setClassYear(data[0].year);
+        setMajorName(data[0].major_name);
+        setMajorCode(data[0].major_code);
+        setRoom(data[0].room);
+      } else {
+        setSelectedMajorId('');
       }
     } catch (err) {
       console.error('Error fetching majors:', err);
     }
   };
 
+  const fetchAcademicYears = async () => {
+    setLoadingYears(true);
+    try {
+      const res = await axios.get('/api/academic-years');
+      setAcademicYears(res.data || []);
+    } catch (err) {
+      console.error('Error fetching academic years:', err);
+    } finally {
+      setLoadingYears(false);
+    }
+  };
+
+  const handleAddYear = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddYearError('');
+    if (!/^\d{4}$/.test(newYear.trim())) {
+      setAddYearError('ปีการศึกษาต้องเป็นตัวเลข 4 หลัก (เช่น 2570)');
+      return;
+    }
+    setAddYearLoading(true);
+    try {
+      await axios.post('/api/academic-years', { year: newYear.trim(), term: newTerm });
+      setNewYear('');
+      setNewTerm('1');
+      setShowAddYearModal(false);
+      await fetchAcademicYears();
+      setYearActionMsg('เพิ่มปีการศึกษาใหม่เรียบร้อยแล้ว');
+      setTimeout(() => setYearActionMsg(''), 3000);
+    } catch (err: any) {
+      setAddYearError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการเพิ่มปีการศึกษา');
+    } finally {
+      setAddYearLoading(false);
+    }
+  };
+
+  const handleEditYearClick = (ay: AcademicYear) => {
+    setEditingYear(ay);
+    setEditYear(ay.year);
+    setEditTerm(ay.term);
+    setEditYearError('');
+    setShowEditYearModal(true);
+  };
+
+  const handleEditYearSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingYear) return;
+    setEditYearError('');
+    if (!/^\d{4}$/.test(editYear.trim())) {
+      setEditYearError('ปีการศึกษาต้องเป็นตัวเลข 4 หลัก');
+      return;
+    }
+    setEditYearLoading(true);
+    try {
+      await axios.put(`/api/academic-years/${editingYear.id}`, { year: editYear.trim(), term: editTerm });
+      setShowEditYearModal(false);
+      setEditingYear(null);
+      await fetchAcademicYears();
+      setYearActionMsg('แก้ไขปีการศึกษาเรียบร้อยแล้ว');
+      setTimeout(() => setYearActionMsg(''), 3000);
+    } catch (err: any) {
+      setEditYearError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการแก้ไขปีการศึกษา');
+    } finally {
+      setEditYearLoading(false);
+    }
+  };
+
+  const handleDeleteYear = (ay: AcademicYear) => {
+    setConfirmDialog({
+      show: true,
+      title: 'ลบปีการศึกษา',
+      message: `คุณแน่ใจหรือไม่ที่จะลบปีการศึกษา ${ay.year} เทอม ${ay.term} ออกจากระบบ?`,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`/api/academic-years/${ay.id}`);
+          await fetchAcademicYears();
+          setYearActionMsg('ลบปีการศึกษาเรียบร้อยแล้ว');
+          setTimeout(() => setYearActionMsg(''), 3000);
+        } catch (err: any) {
+          setYearActionError(err.response?.data?.error || 'เกิดข้อผิดพลาดในการลบปีการศึกษา');
+          setTimeout(() => setYearActionError(''), 4000);
+        }
+      }
+    });
+  };
+
+  const handleActivateYear = async (ay: AcademicYear) => {
+    try {
+      await axios.post(`/api/academic-years/${ay.id}/activate`);
+      await fetchAcademicYears();
+      setYearActionMsg(`ตั้งปีการศึกษา ${ay.year} เทอม ${ay.term} เป็นปีการศึกษาปัจจุบันแล้ว`);
+      setTimeout(() => setYearActionMsg(''), 3000);
+    } catch (err: any) {
+      setYearActionError(err.response?.data?.error || 'เกิดข้อผิดพลาด');
+      setTimeout(() => setYearActionError(''), 4000);
+    }
+  };
+
   useEffect(() => {
     fetchMajors();
+    fetchAcademicYears();
   }, []);
 
   useEffect(() => {
     // Generate unique values for filters from the master majors config list
-    const years = Array.from(new Set(majors.map(m => m.class_year))).sort();
+    const levels = Array.from(new Set(majors.map(m => m.level))).sort();
+    const years = Array.from(new Set(majors.map(m => m.year))).sort();
     const majorCodes = Array.from(new Set(majors.map(m => m.major_code))).sort();
     const rooms = Array.from(new Set(majors.map(m => m.room))).sort();
     
+    setUniqueLevels(levels);
     setUniqueYears(years);
     setUniqueMajors(majorCodes);
     setUniqueRooms(rooms);
@@ -132,7 +276,8 @@ export default function AdminStudents() {
       const res = await axios.get('/api/students', {
         params: {
           search: debouncedSearch.trim() || undefined,
-          class_year: filterYear || undefined,
+          level: filterLevel || undefined,
+          year: filterYear || undefined,
           major_code: filterMajor || undefined,
           room: filterRoom || undefined
         }
@@ -143,7 +288,7 @@ export default function AdminStudents() {
     } finally {
       setLoadingList(false);
     }
-  }, [debouncedSearch, filterYear, filterMajor, filterRoom]);
+  }, [debouncedSearch, filterLevel, filterYear, filterMajor, filterRoom]);
 
   useEffect(() => {
     fetchStudents();
@@ -228,15 +373,17 @@ export default function AdminStudents() {
       return;
     }
 
-    if (!classYear || !majorCode || !room) {
-      setErrorMsg('กรุณาเลือกชั้นปี สาขา และห้องเรียน');
+    if (!selectedMajorId) {
+      setErrorMsg('กรุณาเลือกกลุ่มเรียน / สาขาวิชา');
       return;
     }
 
     setImporting(true);
     try {
       const res = await axios.post('/api/students/import', {
-        class_year: classYear,
+        level,
+        year: classYear,
+        major_name: majorName,
         major_code: majorCode,
         room,
         student_ids: inputIds,
@@ -278,9 +425,24 @@ export default function AdminStudents() {
     setEditPrefix(student.prefix || 'นาย');
     setEditFirstName(student.first_name);
     setEditLastName(student.last_name);
-    setEditClassYear(student.class_year);
-    setEditMajorCode(student.major_code);
-    setEditRoom(student.room);
+    
+    // Find matching major
+    const matchedMajor = majors.find(m => m.level === student.level && m.year === student.year && m.major_code === student.major_code && m.room === student.room);
+    if (matchedMajor) {
+      setEditMajorId(matchedMajor.id.toString());
+      setEditLevel(matchedMajor.level);
+      setEditClassYear(matchedMajor.year);
+      setEditMajorName(matchedMajor.major_name);
+      setEditMajorCode(matchedMajor.major_code);
+      setEditRoom(matchedMajor.room);
+    } else {
+      setEditMajorId('');
+      setEditLevel(student.level);
+      setEditClassYear(student.year);
+      setEditMajorName(student.major_name);
+      setEditMajorCode(student.major_code);
+      setEditRoom(student.room);
+    }
     setEditModalError('');
     setShowEditModal(true);
   };
@@ -290,7 +452,7 @@ export default function AdminStudents() {
     if (!editingStudent) return;
     setEditModalError('');
 
-    if (!editStudentId || !editPrefix || !editFirstName || !editLastName || !editClassYear || !editMajorCode || !editRoom) {
+    if (!editStudentId || !editPrefix || !editFirstName || !editLastName || !editLevel || !editClassYear || !editMajorName || !editMajorCode || !editRoom) {
       setEditModalError('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
@@ -306,7 +468,9 @@ export default function AdminStudents() {
         prefix: editPrefix,
         first_name: editFirstName,
         last_name: editLastName,
-        class_year: editClassYear,
+        level: editLevel,
+        year: editClassYear,
+        major_name: editMajorName,
         major_code: editMajorCode,
         room: editRoom
       });
@@ -351,19 +515,22 @@ export default function AdminStudents() {
     e.preventDefault();
     setMajorError('');
     setMajorSuccess('');
-    if (!newClassYear || !newMajorCode.trim() || !newRoom) {
+    if (!newLevel || !newClassYear || !newMajorName.trim() || !newMajorCode.trim() || !newRoom) {
       setMajorError('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
 
     try {
       await axios.post('/api/majors', {
-        class_year: newClassYear,
+        level: newLevel,
+        year: newClassYear,
+        major_name: newMajorName.trim(),
         major_code: newMajorCode.trim().toUpperCase(),
         room: newRoom
       });
       setMajorSuccess('บันทึกข้อมูลสาขาวิชา/ห้องเรียนใหม่เรียบร้อยแล้ว!');
-      setNewMajorCode('');
+      setNewMajorName('เทคนิคคอมพิวเตอร์');
+      setNewMajorCode('ชทค');
       fetchMajors();
       setTimeout(() => setMajorSuccess(''), 3000);
     } catch (err: any) {
@@ -418,6 +585,122 @@ export default function AdminStudents() {
         </div>
       </div>
 
+      {/* Academic Year CRUD Management Card */}
+      <div className="bg-canvas border border-hairline rounded-lg overflow-hidden shadow-sm">
+        <div className="p-4 sm:p-5 border-b border-hairline flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+              <GraduationCap size={16} />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-ink tracking-tight">จัดการปีการศึกษาในระบบ</h2>
+              <p className="text-xs text-muted-soft mt-0.5">เพิ่ม แก้ไข ลบ และกำหนดปีการศึกษาปัจจุบันที่ใช้งาน</p>
+            </div>
+          </div>
+          <button
+            id="btn-add-academic-year"
+            onClick={() => { setNewYear(''); setNewTerm('1'); setAddYearError(''); setShowAddYearModal(true); }}
+            className="flex items-center space-x-1.5 h-9 px-4 bg-primary hover:bg-primary-active text-white text-xs font-semibold rounded-md transition-all shadow-sm cursor-pointer shrink-0"
+          >
+            <Plus size={14} />
+            <span>เพิ่มปีการศึกษา</span>
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-3">
+          {/* Action feedback */}
+          {yearActionMsg && (
+            <div className="flex items-center space-x-2.5 p-3 rounded-md bg-success/15 border border-success/30 text-success text-sm font-semibold animate-in fade-in duration-200">
+              <Check size={15} />
+              <span>{yearActionMsg}</span>
+            </div>
+          )}
+          {yearActionError && (
+            <div className="flex items-center space-x-2.5 p-3 rounded-md bg-error/15 border border-error/30 text-error text-sm font-semibold animate-in fade-in duration-200">
+              <ShieldAlert size={15} />
+              <span>{yearActionError}</span>
+            </div>
+          )}
+
+          {loadingYears ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : academicYears.length === 0 ? (
+            <div className="text-center py-8 text-muted-soft text-sm">
+              ยังไม่มีปีการศึกษาในระบบ กรุณากดปุ่ม &ldquo;เพิ่มปีการศึกษา&rdquo;
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-hairline">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-surface-soft border-b border-hairline">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-bold text-muted uppercase tracking-wider">ปีการศึกษา</th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-bold text-muted uppercase tracking-wider">เทอม</th>
+                    <th className="px-4 py-2.5 text-center text-[11px] font-bold text-muted uppercase tracking-wider">สถานะ</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] font-bold text-muted uppercase tracking-wider">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {academicYears.map((ay) => (
+                    <tr
+                      key={ay.id}
+                      className={`transition-colors ${
+                        ay.is_active ? 'bg-primary/5' : 'bg-canvas hover:bg-surface-soft/50'
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        <span className={`font-bold text-sm ${ ay.is_active ? 'text-primary' : 'text-ink' }`}>
+                          {ay.year}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-ink text-sm">เทอม {ay.term}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {ay.is_active ? (
+                          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-primary/15 text-primary text-[11px] font-bold border border-primary/25">
+                            <Check size={10} />
+                            <span>ใช้งานอยู่</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleActivateYear(ay)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-surface-soft hover:bg-primary/10 hover:text-primary border border-hairline text-muted text-[11px] font-semibold transition-all cursor-pointer"
+                          >
+                            <span>ตั้งเป็นปัจจุบัน</span>
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => handleEditYearClick(ay)}
+                            title="แก้ไข"
+                            className="w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          {!ay.is_active && (
+                            <button
+                              onClick={() => handleDeleteYear(ay)}
+                              title="ลบ"
+                              className="w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-error/10 text-muted hover:text-error transition-colors cursor-pointer"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Grid Container for 2 Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         
@@ -447,63 +730,95 @@ export default function AdminStudents() {
               )}
 
               {/* Add Major Form */}
-              <form onSubmit={handleAddMajor} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
-                <div className="space-y-1 sm:col-span-1">
-                  <label className="block text-[11px] font-bold text-muted uppercase">ชั้นปี</label>
-                  <select
-                    required
-                    value={newClassYear}
-                    onChange={e => setNewClassYear(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer"
-                  >
-                    <option value="1">ปี 1</option>
-                    <option value="2">ปี 2</option>
-                    <option value="3">ปี 3</option>
-                  </select>
-                </div>
-                
-                <div className="space-y-1 sm:col-span-1">
-                  <label className="block text-[11px] font-bold text-muted uppercase">รหัสย่อสาขา</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={newMajorCode}
-                    onChange={e => setNewMajorCode(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-                    placeholder="เช่น ชทค"
-                  />
+              <form onSubmit={handleAddMajor} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-muted uppercase">ระดับชั้น</label>
+                    <select
+                      required
+                      value={newLevel}
+                      onChange={e => setNewLevel(e.target.value)}
+                      className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="ปวช">ปวช</option>
+                      <option value="ปวส">ปวส</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-muted uppercase">ชั้นปี</label>
+                    <select
+                      required
+                      value={newClassYear}
+                      onChange={e => setNewClassYear(e.target.value)}
+                      className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="1">ปี 1</option>
+                      <option value="2">ปี 2</option>
+                      <option value="3">ปี 3</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-muted uppercase">กลุ่มเรียน (ห้อง)</label>
+                    <select
+                      required
+                      value={newRoom}
+                      onChange={e => setNewRoom(e.target.value)}
+                      className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="1">กลุ่ม 1</option>
+                      <option value="2">กลุ่ม 2</option>
+                      <option value="3">กลุ่ม 3</option>
+                      <option value="4">กลุ่ม 4</option>
+                      <option value="5">กลุ่ม 5</option>
+                      <option value="6">กลุ่ม 6</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="space-y-1 sm:col-span-1">
-                  <label className="block text-[11px] font-bold text-muted uppercase">ห้อง</label>
-                  <select
-                    required
-                    value={newRoom}
-                    onChange={e => setNewRoom(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer"
-                  >
-                    <option value="1">ห้อง 1</option>
-                    <option value="2">ห้อง 2</option>
-                    <option value="3">ห้อง 3</option>
-                    <option value="4">ห้อง 4</option>
-                    <option value="5">ห้อง 5</option>
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-muted uppercase">ชื่อเต็มสาขาวิชา</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newMajorName}
+                      onChange={e => setNewMajorName(e.target.value)}
+                      className="w-full h-10 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                      placeholder="เช่น เทคนิคคอมพิวเตอร์"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-bold text-muted uppercase">ชื่อย่อสาขา</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={newMajorCode}
+                      onChange={e => setNewMajorCode(e.target.value)}
+                      className="w-full h-10 border border-hairline rounded-md px-3.5 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                      placeholder="เช่น ชทค"
+                    />
+                  </div>
                 </div>
 
-                <button 
-                  type="submit"
-                  className="h-10 bg-primary hover:bg-primary-active text-white px-4 rounded-md text-sm font-semibold flex items-center justify-center space-x-1.5 transition-all active:scale-98 cursor-pointer w-full sm:col-span-2 whitespace-nowrap"
-                >
-                  <Save size={15} />
-                  <span>บันทึกข้อมูล</span>
-                </button>
+                <div className="flex justify-end pt-2">
+                  <button 
+                    type="submit"
+                    className="h-10 bg-primary hover:bg-primary-active text-white px-6 rounded-md text-sm font-semibold flex items-center justify-center space-x-1.5 transition-all active:scale-98 cursor-pointer w-full sm:w-auto"
+                  >
+                    <Save size={15} />
+                    <span>บันทึกข้อมูลกลุ่มเรียน</span>
+                  </button>
+                </div>
               </form>
 
               {/* Majors Tags Grid */}
               <div className="space-y-3 pt-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted">สาขาวิชาที่มีในระบบ</h3>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted">กลุ่มเรียนที่มีในระบบ</h3>
                 {majors.length === 0 ? (
-                  <p className="text-xs text-muted-soft py-4">ไม่มีข้อมูลสาขาวิชา กรุณาเพิ่มสาขาวิชาใหม่ด้านบน</p>
+                  <p className="text-xs text-muted-soft py-4">ไม่มีข้อมูลกลุ่มเรียน กรุณาเพิ่มกลุ่มเรียนใหม่ด้านบน</p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {majors.map((major) => (
@@ -511,7 +826,9 @@ export default function AdminStudents() {
                         key={major.id} 
                         className="inline-flex items-center space-x-1.5 bg-surface-soft border border-hairline text-ink text-xs font-semibold px-3 py-1.5 rounded-full"
                       >
-                        <span>{major.class_year}{major.major_code}{major.room}</span>
+                        <span title={`${major.level} ปี ${major.year} ${major.major_name} กลุ่ม ${major.room}`}>
+                          {major.year}{major.major_code}{major.room} ({major.level})
+                        </span>
                         <button 
                           type="button" 
                           onClick={() => handleDeleteMajor(major.id)}
@@ -552,60 +869,33 @@ export default function AdminStudents() {
               )}
 
               {/* Target Selectors */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-ink">ชั้นปี</label>
-                  <select
-                    value={classYear}
-                    onChange={(e) => setClassYear(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary"
-                  >
-                    {uniqueYears.map((y) => (
-                      <option key={y} value={y}>
-                        ปี {y}
-                      </option>
-                    ))}
-                    {uniqueYears.length === 0 && (
-                      <option value="">ไม่มีข้อมูลชั้นปี (กรุณาไปเพิ่มด้านบน)</option>
-                    )}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-ink">สาขาวิชา (รหัสย่อ)</label>
-                  <select
-                    value={majorCode}
-                    onChange={(e) => setMajorCode(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary"
-                  >
-                    {uniqueMajors.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                    {uniqueMajors.length === 0 && (
-                      <option value="">ไม่มีข้อมูลสาขา (กรุณาไปเพิ่มด้านบน)</option>
-                    )}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-ink">ห้องเรียน</label>
-                  <select
-                    value={room}
-                    onChange={(e) => setRoom(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary"
-                  >
-                    {uniqueRooms.map((r) => (
-                      <option key={r} value={r}>
-                        ห้อง {r}
-                      </option>
-                    ))}
-                    {uniqueRooms.length === 0 && (
-                      <option value="">ไม่มีข้อมูลห้องเรียน (กรุณาไปเพิ่มด้านบน)</option>
-                    )}
-                  </select>
-                </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-ink">เลือกกลุ่มเรียน / สาขาวิชา</label>
+                <select
+                  value={selectedMajorId}
+                  onChange={(e) => {
+                    const mId = e.target.value;
+                    setSelectedMajorId(mId);
+                    const found = majors.find(m => m.id.toString() === mId);
+                    if (found) {
+                      setLevel(found.level);
+                      setClassYear(found.year);
+                      setMajorName(found.major_name);
+                      setMajorCode(found.major_code);
+                      setRoom(found.room);
+                    }
+                  }}
+                  className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  {majors.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      [{m.level}] ปี {m.year} {m.major_name} กลุ่ม {m.room} ({m.year}{m.major_code}{m.room})
+                    </option>
+                  ))}
+                  {majors.length === 0 && (
+                    <option value="">ไม่มีข้อมูลชั้นเรียน (กรุณาเพิ่มกลุ่มเรียนด้านบนก่อน)</option>
+                  )}
+                </select>
               </div>
 
               {/* Textareas */}
@@ -768,13 +1058,22 @@ export default function AdminStudents() {
               </div>
 
               {/* Advanced Filter Dropdowns */}
-              <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <select
+                  value={filterLevel}
+                  onChange={(e) => setFilterLevel(e.target.value)}
+                  className="h-9 border border-hairline rounded px-2.5 bg-canvas text-ink"
+                >
+                  <option value="">ระดับชั้นทั้งหมด</option>
+                  {uniqueLevels.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+
                 <select
                   value={filterYear}
                   onChange={(e) => setFilterYear(e.target.value)}
                   className="h-9 border border-hairline rounded px-2.5 bg-canvas text-ink"
                 >
-                  <option value="">ปีทั้งหมด</option>
+                  <option value="">ชั้นปีทั้งหมด</option>
                   {uniqueYears.map(y => <option key={y} value={y}>ปี {y}</option>)}
                 </select>
 
@@ -792,12 +1091,12 @@ export default function AdminStudents() {
                   onChange={(e) => setFilterRoom(e.target.value)}
                   className="h-9 border border-hairline rounded px-2.5 bg-canvas text-ink"
                 >
-                  <option value="">ห้องทั้งหมด</option>
-                  {uniqueRooms.map(r => <option key={r} value={r}>ห้อง {r}</option>)}
+                  <option value="">กลุ่มทั้งหมด</option>
+                  {uniqueRooms.map(r => <option key={r} value={r}>กลุ่ม {r}</option>)}
                 </select>
               </div>
             </form>
-
+ 
             {/* Student List Table */}
             <div className="border border-hairline rounded-lg overflow-hidden bg-canvas">
               <div className="overflow-x-auto max-h-[460px]">
@@ -806,7 +1105,7 @@ export default function AdminStudents() {
                     <tr>
                       <th className="px-4 py-3 text-left font-bold text-muted">รหัสนักศึกษา</th>
                       <th className="px-4 py-3 text-left font-bold text-muted">ชื่อ-นามสกุล</th>
-                      <th className="px-4 py-3 text-left font-bold text-muted">ห้องเรียน</th>
+                      <th className="px-4 py-3 text-left font-bold text-muted">กลุ่มเรียน / สาขาวิชา</th>
                       <th className="px-4 py-3 text-center font-bold text-muted w-24">จัดการ</th>
                     </tr>
                   </thead>
@@ -834,8 +1133,11 @@ export default function AdminStudents() {
                             <span className="text-muted mr-0.5">{s.prefix}</span>
                             <span className="font-semibold">{s.first_name}</span> {s.last_name}
                           </td>
-                          <td className="px-4 py-3 text-muted">
-                            {s.class_year}{s.major_code}{s.room}
+                          <td className="px-4 py-3 text-muted text-xs">
+                            <span className="font-bold text-ink">{s.year}{s.major_code}{s.room}</span>
+                            <div className="text-[10px] text-muted-soft mt-0.5">
+                              {s.level} ปี {s.year} {s.major_name} กลุ่ม {s.room}
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <div className="flex items-center justify-center space-x-1.5">
@@ -977,51 +1279,33 @@ export default function AdminStudents() {
               </div>
 
               {/* Year, Major, Room */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ชั้นปี</label>
-                  <select
-                    value={editClassYear}
-                    onChange={(e) => setEditClassYear(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-2 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
-                  >
-                    {uniqueYears.map((y) => (
-                      <option key={y} value={y}>
-                        ปี {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-ink uppercase tracking-wider">สาขาวิชา</label>
-                  <select
-                    value={editMajorCode}
-                    onChange={(e) => setEditMajorCode(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-2 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
-                  >
-                    {uniqueMajors.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ห้อง</label>
-                  <select
-                    value={editRoom}
-                    onChange={(e) => setEditRoom(e.target.value)}
-                    className="w-full h-10 border border-hairline rounded-md px-2 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
-                  >
-                    {uniqueRooms.map((r) => (
-                      <option key={r} value={r}>
-                        ห้อง {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">กลุ่มเรียน / สาขาวิชา</label>
+                <select
+                  value={editMajorId}
+                  onChange={(e) => {
+                    const mId = e.target.value;
+                    setEditMajorId(mId);
+                    const found = majors.find(m => m.id.toString() === mId);
+                    if (found) {
+                      setEditLevel(found.level);
+                      setEditClassYear(found.year);
+                      setEditMajorName(found.major_name);
+                      setEditMajorCode(found.major_code);
+                      setEditRoom(found.room);
+                    }
+                  }}
+                  className="w-full h-10 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  {majors.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      [{m.level}] ปี {m.year} {m.major_name} กลุ่ม {m.room} ({m.year}{m.major_code}{m.room})
+                    </option>
+                  ))}
+                  {majors.length === 0 && (
+                    <option value="">ไม่มีข้อมูลชั้นเรียน (กรุณาเพิ่มกลุ่มเรียนในระบบก่อน)</option>
+                  )}
+                </select>
               </div>
             </div>
 
@@ -1069,6 +1353,144 @@ export default function AdminStudents() {
                 ยืนยัน
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Academic Year Modal */}
+      {showAddYearModal && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="space-y-1 text-center">
+              <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary mx-auto mb-2">
+                <Plus size={18} />
+              </div>
+              <h3 className="font-bold text-lg text-ink">เพิ่มปีการศึกษาใหม่</h3>
+              <p className="text-xs text-muted">กำหนดปีการศึกษาและเทอมใหม่เพื่อเพิ่มในระบบ</p>
+            </div>
+
+            {addYearError && (
+              <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md text-center">
+                {addYearError}
+              </div>
+            )}
+
+            <form onSubmit={handleAddYear} className="space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ปีการศึกษา (ตัวเลข 4 หลัก)</label>
+                <input
+                  required
+                  type="text"
+                  maxLength={4}
+                  placeholder="เช่น 2570"
+                  value={newYear}
+                  onChange={e => setNewYear(e.target.value.replace(/\D/g, ''))}
+                  className="w-full h-11 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm font-bold placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">เทอมการศึกษา</label>
+                <select
+                  value={newTerm}
+                  onChange={e => setNewTerm(e.target.value)}
+                  className="w-full h-11 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm font-bold focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                >
+                  <option value="1">เทอม 1</option>
+                  <option value="2">เทอม 2</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddYearModal(false); setAddYearError(''); }}
+                  className="h-10 border border-hairline rounded-md text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={addYearLoading}
+                  className="h-10 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white rounded-md text-sm font-semibold transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  {addYearLoading ? (
+                    <div className="w-4 h-4 border-2 border-canvas border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <span>เพิ่มปีการศึกษา</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Academic Year Modal */}
+      {showEditYearModal && editingYear && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="space-y-1 text-center">
+              <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary mx-auto mb-2">
+                <Edit2 size={18} />
+              </div>
+              <h3 className="font-bold text-lg text-ink">แก้ไขปีการศึกษา</h3>
+              <p className="text-xs text-muted">แก้ไขข้อมูลปีการศึกษา {editingYear.year} เทอม {editingYear.term}</p>
+            </div>
+
+            {editYearError && (
+              <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md text-center">
+                {editYearError}
+              </div>
+            )}
+
+            <form onSubmit={handleEditYearSubmit} className="space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ปีการศึกษา (ตัวเลข 4 หลัก)</label>
+                <input
+                  required
+                  type="text"
+                  maxLength={4}
+                  placeholder="เช่น 2570"
+                  value={editYear}
+                  onChange={e => setEditYear(e.target.value.replace(/\D/g, ''))}
+                  className="w-full h-11 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm font-bold placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">เทอมการศึกษา</label>
+                <select
+                  value={editTerm}
+                  onChange={e => setEditTerm(e.target.value)}
+                  className="w-full h-11 border border-hairline rounded-md px-3 bg-canvas text-ink text-sm font-bold focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all cursor-pointer"
+                >
+                  <option value="1">เทอม 1</option>
+                  <option value="2">เทอม 2</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowEditYearModal(false); setEditingYear(null); setEditYearError(''); }}
+                  className="h-10 border border-hairline rounded-md text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={editYearLoading}
+                  className="h-10 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white rounded-md text-sm font-semibold transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  {editYearLoading ? (
+                    <div className="w-4 h-4 border-2 border-canvas border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <span>บันทึกการแก้ไข</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

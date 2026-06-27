@@ -32,6 +32,7 @@ export default function UserDashboard() {
   // Dynamic fetch states
   const [records, setRecords] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [studentProfile, setStudentProfile] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -52,6 +53,7 @@ export default function UserDashboard() {
     setLoading(true);
     setError('');
     setSearched(false);
+    setStudentProfile(null);
     
     if (!/^\d{11}$/.test(id)) {
       setError('รหัสนักศึกษาต้องเป็นตัวเลข 11 หลักเท่านั้น');
@@ -60,12 +62,14 @@ export default function UserDashboard() {
     }
 
     try {
-      const [sessionsRes, attendancesRes] = await Promise.all([
+      const [sessionsRes, attendancesRes, profileRes] = await Promise.all([
         axios.get('/api/sessions'),
-        axios.get(`/api/attendances/student/${id}`)
+        axios.get(`/api/attendances/student/${id}`),
+        axios.get(`/api/students/${id}`).catch(() => ({ data: null }))
       ]);
       setSessions(sessionsRes.data || []);
       setRecords(attendancesRes.data || []);
+      setStudentProfile(profileRes.data);
       setSearched(true);
     } catch (err) {
       console.error(err);
@@ -160,8 +164,26 @@ export default function UserDashboard() {
                   ประวัตินักศึกษา
                 </span>
                 <h2 className="text-xl font-bold text-ink mt-2">แฟ้มข้อมูลสำหรับรหัส {studentId}</h2>
-                {records.length > 0 && (
-                  <p className="text-xs text-muted-soft mt-1">ชื่อ-นามสกุล: {records[0].prefix || ''}{records[0].first_name} {records[0].last_name} ({records[0].class_year}{records[0].major_code}{records[0].room})</p>
+                {studentProfile ? (
+                  <div className="text-xs text-muted-soft mt-2 space-y-1 bg-surface-soft border border-hairline p-3 rounded-md">
+                    <div>
+                      ชื่อ-นามสกุล: <span className="font-semibold text-ink">{studentProfile.prefix || ''}{studentProfile.first_name} {studentProfile.last_name}</span>
+                    </div>
+                    <div>
+                      กลุ่มเรียน: <span className="font-semibold text-ink">{studentProfile.year || studentProfile.class_year}{studentProfile.major_code}{studentProfile.room}</span> ({studentProfile.level} • {studentProfile.major_name})
+                    </div>
+                  </div>
+                ) : records.length > 0 ? (
+                  <div className="text-xs text-muted-soft mt-2 space-y-1 bg-surface-soft border border-hairline p-3 rounded-md">
+                    <div>
+                      ชื่อ-นามสกุล: <span className="font-semibold text-ink">{records[0].prefix || ''}{records[0].first_name} {records[0].last_name}</span>
+                    </div>
+                    <div>
+                      กลุ่มเรียน: <span className="font-semibold text-ink">{records[0].year || records[0].class_year}{records[0].major_code}{records[0].room}</span> ({records[0].level} • {records[0].major_name})
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-error mt-2">ไม่พบรายชื่อในระบบ (ยังไม่ถึงเวลาเรียน หรือไม่มีการลงทะเบียน)</p>
                 )}
               </div>
 

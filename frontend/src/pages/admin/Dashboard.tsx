@@ -33,7 +33,10 @@ interface StudentRecord {
   prefix: string;
   first_name: string;
   last_name: string;
-  class_year: string;
+  class_year?: string;
+  level?: string;
+  year?: string;
+  major_name?: string;
   major_code: string;
   room: string;
   attended_at?: string;
@@ -87,6 +90,7 @@ interface DashboardStats {
 export default function AdminDashboard() {
   // Filter States
   const [selectedSessionId, setSelectedSessionId] = useState<number | 'all' | ''>('');
+  const [level, setLevel] = useState<string>('');
   const [classYear, setClassYear] = useState<string>('');
   const [majorCode, setMajorCode] = useState<string>('');
   const [room, setRoom] = useState<string>('');
@@ -94,6 +98,7 @@ export default function AdminDashboard() {
 
   // Dropdown Master Data
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [availableLevels, setAvailableLevels] = useState<string[]>([]);
   const [availableMajors, setAvailableMajors] = useState<string[]>([]);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [availableRooms, setAvailableRooms] = useState<string[]>([]);
@@ -210,11 +215,13 @@ export default function AdminDashboard() {
       if (tab === 'summary') {
         key = s.status === 'present' ? 'มาเรียน' : 'ขาดเรียน';
       } else if (tab === 'year') {
-        key = s.class_year ? `ปี ${s.class_year}` : 'ไม่ระบุ';
+        const yr = s.year || s.class_year;
+        key = yr ? `ปี ${yr}` : 'ไม่ระบุ';
       } else if (tab === 'major') {
         key = s.major_code || 'ไม่ระบุ';
       } else if (tab === 'room') {
-        key = s.room ? `${s.class_year || ''}${s.major_code || ''}${s.room}` : 'ไม่ระบุ';
+        const yr = s.year || s.class_year;
+        key = s.room ? `${yr || ''}${s.major_code || ''}${s.room}` : 'ไม่ระบุ';
       } else if (tab === 'gender') {
         key = getGender(s.prefix);
       }
@@ -302,10 +309,13 @@ export default function AdminDashboard() {
     try {
       const res = await axios.get('/api/majors');
       if (res.data) {
+        const uniqueLevels = Array.from(new Set(res.data.map((m: any) => m.level))) as string[];
+        setAvailableLevels(uniqueLevels.sort());
+
         const unique = Array.from(new Set(res.data.map((m: any) => m.major_code))) as string[];
         setAvailableMajors(unique.sort());
 
-        const uniqueYears = Array.from(new Set(res.data.map((m: any) => m.class_year.toString()))) as string[];
+        const uniqueYears = Array.from(new Set(res.data.map((m: any) => m.year.toString()))) as string[];
         setAvailableYears(uniqueYears.sort((a, b) => a.localeCompare(b)));
 
         const uniqueRooms = Array.from(new Set(res.data.map((m: any) => m.room.toString()))) as string[];
@@ -335,6 +345,7 @@ export default function AdminDashboard() {
       const res = await axios.get('/api/admin/dashboard-stats', {
         params: {
           sessionId: selectedSessionId || undefined,
+          level: level || undefined,
           classYear: classYear || undefined,
           majorCode: majorCode || undefined,
           room: room || undefined,
@@ -353,7 +364,7 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSessionId, classYear, majorCode, room, gender]);
+  }, [selectedSessionId, level, classYear, majorCode, room, gender]);
 
   useEffect(() => {
     fetchMajors();
@@ -384,7 +395,9 @@ export default function AdminDashboard() {
             first_name: student.first_name,
             last_name: student.last_name,
             student_id: student.student_id,
-            class_year: student.class_year,
+            level: student.level || 'ปวช',
+            year: student.year || student.class_year || '1',
+            major_name: student.major_name || 'ไม่ระบุสาขา',
             major_code: student.major_code,
             room: student.room
           });
@@ -456,6 +469,7 @@ export default function AdminDashboard() {
   ) || [];
 
   const handleClearFilters = () => {
+    setLevel('');
     setClassYear('');
     setMajorCode('');
     setRoom('');
@@ -468,10 +482,11 @@ export default function AdminDashboard() {
     if (dataToExport.length === 0) return;
 
     const headers = activeTab === 'present' 
-      ? ['ลำดับ', 'รหัสนักศึกษา', 'คำนำหน้า', 'ชื่อจริง', 'นามสกุล', 'ชั้นปี', 'สาขาวิชา', 'ห้องเรียน', 'เวลาเช็กชื่อ']
-      : ['ลำดับ', 'รหัสนักศึกษา', 'คำนำหน้า', 'ชื่อจริง', 'นามสกุล', 'ชั้นปี', 'สาขาวิชา', 'ห้องเรียน'];
+      ? ['ลำดับ', 'รหัสนักศึกษา', 'คำนำหน้า', 'ชื่อจริง', 'นามสกุล', 'ระดับชั้น', 'ชั้นปี', 'ชื่อย่อสาขา', 'ชื่อเต็มสาขา', 'กลุ่ม', 'เวลาเช็กชื่อ']
+      : ['ลำดับ', 'รหัสนักศึกษา', 'คำนำหน้า', 'ชื่อจริง', 'นามสกุล', 'ระดับชั้น', 'ชั้นปี', 'ชื่อย่อสาขา', 'ชื่อเต็มสาขา', 'กลุ่ม'];
 
     const rows = dataToExport.map((s, idx) => {
+      const yr = s.year || s.class_year;
       return activeTab === 'present'
         ? [
             idx + 1,
@@ -479,8 +494,10 @@ export default function AdminDashboard() {
             s.prefix || '',
             s.first_name,
             s.last_name,
-            s.class_year,
+            s.level || 'ปวช',
+            yr,
             s.major_code,
+            s.major_name || '',
             s.room,
             formatTime(s.attended_at)
           ]
@@ -490,8 +507,10 @@ export default function AdminDashboard() {
             s.prefix || '',
             s.first_name,
             s.last_name,
-            s.class_year,
+            s.level || 'ปวช',
+            yr,
             s.major_code,
+            s.major_name || '',
             s.room
           ];
     });
@@ -604,7 +623,7 @@ export default function AdminDashboard() {
           )}
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {/* Week Selector */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-ink">สัปดาห์กิจกรรม</label>
@@ -630,9 +649,24 @@ export default function AdminDashboard() {
             </select>
           </div>
 
+          {/* Level Selector */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-semibold text-ink">ระดับชั้น</label>
+            <select
+              value={level}
+              onChange={e => setLevel(e.target.value)}
+              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
+            >
+              <option value="">ทั้งหมด</option>
+              {availableLevels.map(lvl => (
+                <option key={lvl} value={lvl}>{lvl}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Class Year */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">ระดับชั้นปี</label>
+            <label className="block text-xs font-semibold text-ink">ชั้นปี</label>
             <select
               value={classYear}
               onChange={e => setClassYear(e.target.value)}
@@ -662,7 +696,7 @@ export default function AdminDashboard() {
 
           {/* Room Selector */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">ห้องเรียน</label>
+            <label className="block text-xs font-semibold text-ink">กลุ่มเรียน (ห้อง)</label>
             <select
               value={room}
               onChange={e => setRoom(e.target.value)}
@@ -670,7 +704,7 @@ export default function AdminDashboard() {
             >
               <option value="">ทั้งหมด</option>
               {availableRooms.map(r => (
-                <option key={r} value={r}>ห้อง {r}</option>
+                <option key={r} value={r}>กลุ่ม {r}</option>
               ))}
             </select>
           </div>
@@ -693,6 +727,19 @@ export default function AdminDashboard() {
 
       {/* KPI Cards & Radial Progress */}
       {stats && (
+        <>
+        {/* All-weeks mode info banner */}
+        {selectedSessionId === 'all' && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+            <svg className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <div>
+              <span className="font-bold">โหมดภาพรวมทุกสัปดาห์:</span>{' '}
+              ตัวเลขที่แสดงคือ <span className="font-semibold">ยอดสะสม (คน × สัปดาห์)</span> ไม่ใช่จำนวนนักศึกษาจริง{' '}
+              เช่น 35 คน × {sessions.length} สัปดาห์ = {35 * sessions.length} คน-ครั้ง ·{' '}
+              ดูค่า <span className="font-semibold">"เฉลี่ยต่อสัปดาห์"</span> เพื่อเปรียบเทียบจำนวนคนต่อคาบ
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
           {/* Radial Attendance Circle Card */}
           <div className="bg-canvas border border-hairline rounded-lg p-5 flex items-center justify-between shadow-sm transition-all hover:shadow-md">
@@ -731,41 +778,46 @@ export default function AdminDashboard() {
           {/* Metric Summary Card: Present / Absent */}
           <div className="bg-canvas border border-hairline rounded-lg p-5 flex flex-col justify-between shadow-sm transition-all hover:shadow-md">
             <div className="flex justify-between items-start">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted">สรุปจำนวนผู้เข้าร่วม</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-muted">
+                {selectedSessionId === 'all' ? 'เฉลี่ยต่อสัปดาห์' : 'สรุปจำนวนผู้เข้าร่วม'}
+              </span>
               <span className="p-1.5 bg-success/10 text-success rounded-full"><UserCheck size={14} /></span>
             </div>
             
             <div className="grid grid-cols-3 gap-2 mt-4 pt-2">
+              {/* Present */}
               <div className="text-center border-r border-hairline">
-                <div className="text-xl font-extrabold text-success">{stats.totalPresent}</div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">
-                  มาเรียน ({selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'})
+                <div className="text-xl font-extrabold text-success">
+                  {selectedSessionId === 'all' ? avgPresent : stats.totalPresent}
                 </div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">มาเรียน (คน)</div>
                 {selectedSessionId === 'all' && (
-                  <div className="text-[9px] text-muted-soft mt-0.5 font-bold">
-                    เฉลี่ย {avgPresent} คน
+                  <div className="text-[9px] text-muted-soft mt-0.5">
+                    รวม {stats.totalPresent} คน-ครั้ง
                   </div>
                 )}
               </div>
+              {/* Absent */}
               <div className="text-center border-r border-hairline">
-                <div className="text-xl font-extrabold text-error">{stats.totalAbsent}</div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">
-                  ขาดเรียน ({selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'})
+                <div className="text-xl font-extrabold text-error">
+                  {selectedSessionId === 'all' ? avgAbsent : stats.totalAbsent}
                 </div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">ขาดเรียน (คน)</div>
                 {selectedSessionId === 'all' && (
-                  <div className="text-[9px] text-muted-soft mt-0.5 font-bold">
-                    เฉลี่ย {avgAbsent} คน
+                  <div className="text-[9px] text-muted-soft mt-0.5">
+                    รวม {stats.totalAbsent} คน-ครั้ง
                   </div>
                 )}
               </div>
+              {/* Total */}
               <div className="text-center">
-                <div className="text-xl font-extrabold text-ink">{stats.totalExpected}</div>
-                <div className="text-[10px] text-muted-soft uppercase font-bold">
-                  ทั้งหมด ({selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'})
+                <div className="text-xl font-extrabold text-ink">
+                  {selectedSessionId === 'all' ? uniqueExpected : stats.totalExpected}
                 </div>
+                <div className="text-[10px] text-muted-soft uppercase font-bold">ทั้งหมด (คน)</div>
                 {selectedSessionId === 'all' && (
-                  <div className="text-[9px] text-muted-soft mt-0.5 font-bold">
-                    จาก {uniqueExpected} คน
+                  <div className="text-[9px] text-muted-soft mt-0.5">
+                    รวม {stats.totalExpected} คน-ครั้ง
                   </div>
                 )}
               </div>
@@ -850,7 +902,9 @@ export default function AdminDashboard() {
             )}
           </div>
         </div>
+        </>
       )}
+
 
       {/* Message Banners */}
       {message && (
@@ -1112,7 +1166,7 @@ export default function AdminDashboard() {
                 {totalExpected === 0 ? (
                   <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ไม่มีรายชื่อที่จะแสดงสัดส่วน</div>
                 ) : (
-                  <div className="flex flex-col sm:flex-row items-center justify-around py-4 gap-6">
+                  <div key={ratioTab} className="flex flex-col sm:flex-row items-center justify-around py-4 gap-6 tab-content-anim">
                     {/* The Single Donut Chart */}
                     {(() => {
                       const segments = getSegmentsForTab(ratioTab);
@@ -1120,9 +1174,9 @@ export default function AdminDashboard() {
                       const circ = 2 * Math.PI * radius; // 301.6
                       
                       return (
-                        <div className="relative w-48 h-48 flex items-center justify-center flex-shrink-0 animate-in fade-in duration-200">
+                        <div className="relative w-48 h-48 flex items-center justify-center flex-shrink-0">
                           <svg viewBox="0 0 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
-                            {segments.map((seg, idx) => {
+                            {segments.map((seg) => {
                               const offset = circ - (seg.percentage / 100) * circ;
                               const pathKey = seg.path.join('-');
                               const isHovered = hoveredPath !== null && pathKey === hoveredPath.join('-');
@@ -1138,17 +1192,17 @@ export default function AdminDashboard() {
 
                               return (
                                 <circle
-                                  key={idx}
+                                  key={`${ratioTab}-${pathKey}`}
                                   cx="60"
                                   cy="60"
                                   r={radius}
-                                  className="fill-none cursor-pointer transition-all duration-300"
+                                  className="fill-none cursor-pointer animate-draw-circle transition-all duration-300 ease-out"
                                   stroke={seg.color}
                                   strokeWidth={strokeWidth}
                                   strokeDasharray={circ}
                                   strokeDashoffset={offset}
                                   transform={`rotate(${seg.startAngle} 60 60)`}
-                                  style={{ opacity }}
+                                  style={{ opacity, '--circ': `${circ}px`, '--target-offset': `${offset}px` } as React.CSSProperties}
                                   onMouseEnter={() => {
                                     setHoveredPath(seg.path);
                                     setHoveredSeg({
@@ -1221,13 +1275,13 @@ export default function AdminDashboard() {
                           return <div className="text-center py-8 text-xs text-muted-soft">ไม่มีสถิติสำหรับกลุ่มนี้</div>;
                         }
 
-                        return segments.map((seg, idx) => {
+                        return segments.map((seg) => {
                           const pathKey = seg.path.join('-');
                           const isHovered = hoveredPath !== null && pathKey === hoveredPath.join('-');
 
                           return (
                             <div
-                              key={idx}
+                              key={`${ratioTab}-${pathKey}`}
                               className={`p-2 rounded-md border transition-all duration-150 flex flex-col space-y-1 text-xs cursor-pointer ${
                                 isHovered
                                   ? 'bg-surface-soft border-primary/20 scale-[1.01] shadow-sm font-semibold'
@@ -1603,6 +1657,21 @@ export default function AdminDashboard() {
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-bold text-muted uppercase tracking-wider text-[10px]">ตัวกรองรายชื่อ:</span>
               
+              {/* Level */}
+              <div className="flex items-center space-x-1.5">
+                <span className="text-muted">ระดับชั้น:</span>
+                <select
+                  value={level}
+                  onChange={e => setLevel(e.target.value)}
+                  className="h-8 border border-hairline rounded-md px-2 bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer text-xs"
+                >
+                  <option value="">ทั้งหมด</option>
+                  {availableLevels.map(lvl => (
+                    <option key={lvl} value={lvl}>{lvl}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Class Year */}
               <div className="flex items-center space-x-1.5">
                 <span className="text-muted">ชั้นปี:</span>
@@ -1635,7 +1704,7 @@ export default function AdminDashboard() {
 
               {/* Room */}
               <div className="flex items-center space-x-1.5">
-                <span className="text-muted">ห้อง:</span>
+                <span className="text-muted">กลุ่ม:</span>
                 <select
                   value={room}
                   onChange={e => setRoom(e.target.value)}
@@ -1643,7 +1712,7 @@ export default function AdminDashboard() {
                 >
                   <option value="">ทั้งหมด</option>
                   {availableRooms.map(r => (
-                    <option key={r} value={r}>ห้อง {r}</option>
+                    <option key={r} value={r}>กลุ่ม {r}</option>
                   ))}
                 </select>
               </div>
@@ -1688,9 +1757,7 @@ export default function AdminDashboard() {
                       <th className="p-3 w-36">รหัสนักศึกษา</th>
                       <th className="p-3">ชื่อ-นามสกุล</th>
                       {selectedSessionId === 'all' && <th className="p-3 w-40">สัปดาห์กิจกรรม</th>}
-                      <th className="p-3 w-28 text-center">ระดับชั้นปี</th>
-                      <th className="p-3 w-24 text-center">สาขาวิชา</th>
-                      <th className="p-3 w-20 text-center">ห้องเรียน</th>
+                      <th className="p-3 text-center">กลุ่มเรียน / สาขาวิชา</th>
                       <th className="p-3 w-32 text-center">เวลาลงชื่อ</th>
                       <th className="p-3 w-28 text-right">สถานะ</th>
                     </tr>
@@ -1711,9 +1778,10 @@ export default function AdminDashboard() {
                             สัปดาห์ที่ {(student as any).week_number} • {(student as any).session_title}
                           </td>
                         )}
-                        <td className="p-3 text-xs text-ink text-center font-bold">ปี {student.class_year}</td>
-                        <td className="p-3 text-xs text-center font-bold text-primary uppercase">{student.major_code}</td>
-                        <td className="p-3 text-xs text-muted text-center">ห้อง {student.room}</td>
+                        <td className="p-3 text-xs text-ink text-center">
+                          <span className="font-bold">{student.year || student.class_year}{student.major_code}{student.room}</span>
+                          <div className="text-[10px] text-muted-soft mt-0.5">{student.level} • {student.major_name || ''}</div>
+                        </td>
                         <td className="p-3 text-xs font-mono text-ink text-center font-semibold">{formatTime(student.attended_at)}</td>
                         <td className="p-3 text-right">
                           <span className="inline-block text-[10px] font-bold bg-success/10 text-success px-2 py-0.5 rounded-full border border-success/20">
@@ -1737,9 +1805,7 @@ export default function AdminDashboard() {
                       <th className="p-3 w-36">รหัสนักศึกษา</th>
                       <th className="p-3">ชื่อ-นามสกุล</th>
                       {selectedSessionId === 'all' && <th className="p-3 w-40">สัปดาห์กิจกรรม</th>}
-                      <th className="p-3 w-28 text-center">ระดับชั้นปี</th>
-                      <th className="p-3 w-24 text-center">สาขาวิชา</th>
-                      <th className="p-3 w-20 text-center">ห้องเรียน</th>
+                      <th className="p-3 text-center">กลุ่มเรียน / สาขาวิชา</th>
                       <th className="p-3 w-32 text-right">เช็กชื่อแบบแมนนวล</th>
                     </tr>
                   </thead>
@@ -1759,9 +1825,10 @@ export default function AdminDashboard() {
                             สัปดาห์ที่ {(student as any).week_number} • {(student as any).session_title}
                           </td>
                         )}
-                        <td className="p-3 text-xs text-ink text-center font-bold">ปี {student.class_year}</td>
-                        <td className="p-3 text-xs text-center font-bold text-primary uppercase">{student.major_code}</td>
-                        <td className="p-3 text-xs text-muted text-center">ห้อง {student.room}</td>
+                        <td className="p-3 text-xs text-ink text-center">
+                          <span className="font-bold">{student.year || student.class_year}{student.major_code}{student.room}</span>
+                          <div className="text-[10px] text-muted-soft mt-0.5">{student.level} • {student.major_name || ''}</div>
+                        </td>
                         <td className="p-3 text-right" onClick={e => e.stopPropagation()}>
                           <button
                             onClick={() => handleQuickCheckin(student)}

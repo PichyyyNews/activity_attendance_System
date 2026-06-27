@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 import { google } from 'googleapis';
 import db from './db';
 
@@ -59,6 +60,15 @@ function getGenderFromPrefix(prefix: string = ''): 'male' | 'female' {
     return 'male';
   }
   return 'female';
+}
+
+function getActiveSettings(): { academic_year: string; term: string } {
+  try {
+    const settings = db.prepare('SELECT academic_year, term FROM settings WHERE id = 1').get() as { academic_year: string, term: string } | undefined;
+    return settings || { academic_year: '2569', term: '1' };
+  } catch (e) {
+    return { academic_year: '2569', term: '1' };
+  }
 }
 
 // Helper to get Thai time from API with local offset fallback
@@ -119,8 +129,8 @@ async function getThaiTimeISO(): Promise<string> {
 
 // Helper function to sync attendance row to Google Sheets
 async function syncToGoogleSheets(
-  session: { week_number: number; title: string }, 
-  attendance: { student_id: string; prefix?: string; first_name: string; last_name: string; class_year: string; major_code: string; room: string; attended_at?: string }
+  session: { week_number: number; title: string; academic_year?: string; term?: string }, 
+  attendance: { student_id: string; prefix?: string; first_name: string; last_name: string; class_year: string; major_code: string; room: string; attended_at?: string; level?: string; year?: string; major_name?: string }
 ) {
   try {
     const stmt = db.prepare('SELECT * FROM settings WHERE id = 1');
@@ -149,7 +159,7 @@ async function syncToGoogleSheets(
     try {
       const checkRes = await sheets.spreadsheets.values.get({
         spreadsheetId: sheetId,
-        range: 'A1:J1'
+        range: 'A1:N1'
       });
       if (checkRes.data.values && checkRes.data.values.length > 0) {
         hasHeaders = true;
@@ -161,36 +171,43 @@ async function syncToGoogleSheets(
     const values = [];
     if (!hasHeaders) {
       values.push([
+        'ปีการศึกษา',
+        'เทอม',
+        'ระดับชั้น',
+        'ชั้นปี',
+        'ชื่อย่อสาขา',
+        'ชื่อเต็มสาขา',
+        'กลุ่ม',
         'สัปดาห์ที่',
         'หัวข้อกิจกรรม',
         'รหัสนักศึกษา',
         'คำนำหน้า',
         'ชื่อจริง',
         'นามสกุล',
-        'ชั้นปี',
-        'สาขาวิชา',
-        'ห้องเรียน',
         'เวลาเช็กชื่อ'
       ]);
     }
 
-    // Values to append: Week, Title, Student ID, Prefix, First Name, Last Name, Class Year, Major Code, Room, Timestamp
     values.push([
+      session.academic_year || '2569',
+      session.term || '1',
+      attendance.level || 'ปวช',
+      attendance.year || attendance.class_year || '1',
+      attendance.major_code,
+      attendance.major_name || 'เทคนิคคอมพิวเตอร์',
+      attendance.room,
       session.week_number,
       session.title,
       attendance.student_id,
       attendance.prefix || '',
       attendance.first_name,
       attendance.last_name,
-      attendance.class_year,
-      attendance.major_code,
-      attendance.room,
       new Date(attendance.attended_at || new Date()).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
     ]);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: 'A:J',
+      range: 'A:N',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values }
     });
@@ -209,27 +226,165 @@ app.get('/api/health', (req, res) => {
 app.get('/api/settings', (req, res) => {
   try {
     const stmt = db.prepare('SELECT * FROM settings WHERE id = 1');
-    const settings = stmt.get();
-    res.json(settings || { sheet_id: '', credentials_json: '' });
+    const settings = stmt.get() as any;
+    res.json(settings || { sheet_id: '', credentials_json: '', academic_year: '2569', term: '1' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch settings' });
   }
 });
 
+app.get('/api/academic-years', (req, res) => {
+  try {
+    // Return full objects from academic_years table, merged with any years not yet in the table
+    const rows = db.prepare('SELECT id, year, term, is_active FROM academic_years ORDER BY year DESC, term ASC').all() as { id: number; year: string; term: string; is_active: number }[];
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch academic years' });
+  }
+});
+
+// Get active year as simple strings (used by sidebar dropdowns)
+app.get('/api/academic-years/list', (req, res) => {
+  try {
+    const rows = db.prepare('SELECT DISTINCT year FROM academic_years ORDER BY year DESC').all() as { year: string }[];
+    res.json(rows.map(r => r.year));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch academic years list' });
+  }
+});
+
+// Create new academic year
+app.post('/api/academic-years', (req, res) => {
+  try {
+    const { year, term } = req.body;
+    if (!year || !/^\d{4}$/.test(year.trim())) {
+      return res.status(400).json({ error: 'ปีการศึกษาต้องเป็นตัวเลข 4 หลัก' });
+    }
+    const termVal = term || '1';
+    const result = db.prepare('INSERT OR IGNORE INTO academic_years (year, term, is_active) VALUES (?, ?, 0)').run(year.trim(), termVal);
+    if (result.changes === 0) {
+      return res.status(409).json({ error: `ปีการศึกษา ${year} เทอม ${termVal} มีอยู่ในระบบแล้ว` });
+    }
+    const inserted = db.prepare('SELECT id, year, term, is_active FROM academic_years WHERE year = ? AND term = ?').get(year.trim(), termVal);
+    res.json(inserted);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create academic year' });
+  }
+});
+
+// Update (rename) an academic year
+app.put('/api/academic-years/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { year, term } = req.body;
+    if (!year || !/^\d{4}$/.test(year.trim())) {
+      return res.status(400).json({ error: 'ปีการศึกษาต้องเป็นตัวเลข 4 หลัก' });
+    }
+    const termVal = term || '1';
+    // Check if the new year+term combo already exists (and it's not the same row)
+    const existing = db.prepare('SELECT id FROM academic_years WHERE year = ? AND term = ? AND id != ?').get(year.trim(), termVal, id);
+    if (existing) {
+      return res.status(409).json({ error: `ปีการศึกษา ${year} เทอม ${termVal} มีอยู่ในระบบแล้ว` });
+    }
+
+    // Get current row to detect if active (need to sync settings)
+    const current = db.prepare('SELECT year, term, is_active FROM academic_years WHERE id = ?').get(id) as { year: string; term: string; is_active: number } | undefined;
+    if (!current) return res.status(404).json({ error: 'ไม่พบข้อมูลปีการศึกษา' });
+
+    db.prepare('UPDATE academic_years SET year = ?, term = ? WHERE id = ?').run(year.trim(), termVal, id);
+
+    // If this was the active year, update settings too
+    if (current.is_active) {
+      db.prepare('UPDATE settings SET academic_year = ?, term = ? WHERE id = 1').run(year.trim(), termVal);
+    }
+
+    const updated = db.prepare('SELECT id, year, term, is_active FROM academic_years WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update academic year' });
+  }
+});
+
+// Delete an academic year
+app.delete('/api/academic-years/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const row = db.prepare('SELECT year, term, is_active FROM academic_years WHERE id = ?').get(id) as { year: string; term: string; is_active: number } | undefined;
+    if (!row) return res.status(404).json({ error: 'ไม่พบข้อมูลปีการศึกษา' });
+    if (row.is_active) {
+      return res.status(400).json({ error: 'ไม่สามารถลบปีการศึกษาที่กำลังใช้งานอยู่ได้ กรุณาเปลี่ยนปีการศึกษาที่ใช้งานก่อน' });
+    }
+    db.prepare('DELETE FROM academic_years WHERE id = ?').run(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete academic year' });
+  }
+});
+
+// Activate an academic year (set as current)
+app.post('/api/academic-years/:id/activate', (req, res) => {
+  try {
+    const { id } = req.params;
+    const row = db.prepare('SELECT year, term FROM academic_years WHERE id = ?').get(id) as { year: string; term: string } | undefined;
+    if (!row) return res.status(404).json({ error: 'ไม่พบข้อมูลปีการศึกษา' });
+
+    // Deactivate all, then activate selected
+    db.prepare('UPDATE academic_years SET is_active = 0').run();
+    db.prepare('UPDATE academic_years SET is_active = 1 WHERE id = ?').run(id);
+
+    // Sync to settings table
+    db.prepare('UPDATE settings SET academic_year = ?, term = ? WHERE id = 1').run(row.year, row.term);
+
+    res.json({ success: true, year: row.year, term: row.term });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to activate academic year' });
+  }
+});
+
+app.get('/api/terms', (req, res) => {
+  try {
+    const termsRows = db.prepare(`
+      SELECT DISTINCT term FROM students 
+      UNION 
+      SELECT DISTINCT term FROM majors 
+      UNION 
+      SELECT DISTINCT term FROM settings
+    `).all() as { term: string }[];
+    
+    const terms = termsRows
+      .map(r => r.term)
+      .filter(t => t && t.trim() !== '')
+      .sort((a, b) => a.localeCompare(b));
+      
+    res.json(terms);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch terms' });
+  }
+});
+
 app.post('/api/settings', (req, res) => {
-  const { sheet_id, credentials_json } = req.body;
+  const { sheet_id, credentials_json, academic_year, term } = req.body;
   const sheetIdMatch = (sheet_id || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   const cleanSheetId = sheetIdMatch ? sheetIdMatch[1] : (sheet_id || '').trim();
   try {
     const stmt = db.prepare(`
-      INSERT INTO settings (id, sheet_id, credentials_json) 
-      VALUES (1, ?, ?) 
+      INSERT INTO settings (id, sheet_id, credentials_json, academic_year, term) 
+      VALUES (1, ?, ?, ?, ?) 
       ON CONFLICT(id) DO UPDATE SET 
       sheet_id = excluded.sheet_id, 
-      credentials_json = excluded.credentials_json
+      credentials_json = excluded.credentials_json,
+      academic_year = excluded.academic_year,
+      term = excluded.term
     `);
-    stmt.run(cleanSheetId, credentials_json || '');
+    stmt.run(cleanSheetId, credentials_json || '', academic_year || '2569', term || '1');
     res.json({ success: true });
   } catch (error) {
     console.error(error);
@@ -267,11 +422,11 @@ app.post('/api/settings/sync-all', async (req, res) => {
       ORDER BY s.week_number ASC, a.attended_at ASC
     `).all() as any[];
 
-    // Clear existing data in A:J
+    // Clear existing data in A:N
     try {
       await sheets.spreadsheets.values.clear({
         spreadsheetId: sheetId,
-        range: 'A:J',
+        range: 'A:N',
       });
     } catch (clearErr: any) {
       console.error('Error clearing sheet:', clearErr);
@@ -281,30 +436,38 @@ app.post('/api/settings/sync-all', async (req, res) => {
     // Build values array
     const values = [
       [
+        'ปีการศึกษา',
+        'เทอม',
+        'ระดับชั้น',
+        'ชั้นปี',
+        'ชื่อย่อสาขา',
+        'ชื่อเต็มสาขา',
+        'กลุ่ม',
         'สัปดาห์ที่',
         'หัวข้อกิจกรรม',
         'รหัสนักศึกษา',
         'คำนำหน้า',
         'ชื่อจริง',
         'นามสกุล',
-        'ชั้นปี',
-        'สาขาวิชา',
-        'ห้องเรียน',
         'เวลาเช็กชื่อ'
       ]
     ];
 
     attendances.forEach(att => {
       values.push([
+        att.academic_year || '2569',
+        att.term || '1',
+        att.level || 'ปวช',
+        att.year || att.class_year || '1',
+        att.major_code,
+        att.major_name || 'เทคนิคคอมพิวเตอร์',
+        att.room,
         att.week_number,
         att.session_title,
         att.student_id,
         att.prefix || '',
         att.first_name,
         att.last_name,
-        att.class_year,
-        att.major_code,
-        att.room,
         new Date(att.attended_at || new Date()).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
       ]);
     });
@@ -327,8 +490,9 @@ app.post('/api/settings/sync-all', async (req, res) => {
 // Majors CRUD
 app.get('/api/majors', (req, res) => {
   try {
-    const stmt = db.prepare('SELECT * FROM majors ORDER BY class_year ASC, major_code ASC, room ASC');
-    const list = stmt.all();
+    const { academic_year, term } = getActiveSettings();
+    const stmt = db.prepare('SELECT * FROM majors WHERE academic_year = ? AND term = ? ORDER BY level ASC, year ASC, major_code ASC, room ASC');
+    const list = stmt.all(academic_year, term);
     res.json(list);
   } catch (error) {
     console.error(error);
@@ -337,17 +501,27 @@ app.get('/api/majors', (req, res) => {
 });
 
 app.post('/api/majors', (req, res) => {
-  const { class_year, major_code, room } = req.body;
-  if (!class_year || !major_code || !room) {
+  const { level, year, major_name, major_code, room } = req.body;
+  const { academic_year, term } = getActiveSettings();
+  if (!level || !year || !major_name || !major_code || !room) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
   try {
-    const stmt = db.prepare('INSERT INTO majors (class_year, major_code, room) VALUES (?, ?, ?)');
-    const result = stmt.run(class_year.trim(), major_code.trim().toUpperCase(), room.trim());
-    res.json({ id: result.lastInsertRowid, class_year: class_year.trim(), major_code: major_code.trim().toUpperCase(), room: room.trim() });
+    const stmt = db.prepare('INSERT INTO majors (academic_year, term, level, year, major_name, major_code, room) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const result = stmt.run(academic_year, term, level.trim(), year.trim(), major_name.trim(), major_code.trim().toUpperCase(), room.trim());
+    res.json({ 
+      id: result.lastInsertRowid, 
+      academic_year, 
+      term, 
+      level: level.trim(), 
+      year: year.trim(), 
+      major_name: major_name.trim(), 
+      major_code: major_code.trim().toUpperCase(), 
+      room: room.trim() 
+    });
   } catch (error: any) {
     if (error.message.includes('UNIQUE constraint failed')) {
-      return res.status(400).json({ error: 'สาขาวิชา/ห้องเรียนนี้มีอยู่ในระบบแล้ว' });
+      return res.status(400).json({ error: 'สาขาวิชา/กลุ่มนี้มีอยู่ในระบบแล้ว' });
     }
     console.error(error);
     res.status(500).json({ error: 'Failed to add major' });
@@ -369,12 +543,29 @@ app.delete('/api/majors/:id', (req, res) => {
 // Sessions CRUD
 app.get('/api/sessions', (req, res) => {
   try {
-    const stmt = db.prepare('SELECT * FROM sessions ORDER BY week_number ASC');
-    const list = stmt.all();
+    const { academic_year, term } = getActiveSettings();
+    const stmt = db.prepare('SELECT * FROM sessions WHERE academic_year = ? AND term = ? ORDER BY week_number ASC');
+    const list = stmt.all(academic_year, term);
     res.json(list);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+// Lookup session by secure token (must be before /:id to avoid conflict)
+app.get('/api/sessions/by-token/:token', (req, res) => {
+  const { token } = req.params;
+  try {
+    const stmt = db.prepare('SELECT * FROM sessions WHERE token = ?');
+    const session = stmt.get(token);
+    if (!session) {
+      return res.status(404).json({ error: 'ไม่พบคาบกิจกรรมที่ระบุ' });
+    }
+    res.json(session);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch session by token' });
   }
 });
 
@@ -395,13 +586,15 @@ app.get('/api/sessions/:id', (req, res) => {
 
 app.post('/api/sessions', (req, res) => {
   const { week_number, title, date, close_at } = req.body;
+  const { academic_year, term } = getActiveSettings();
   if (!week_number || !title || !date) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
   try {
-    const stmt = db.prepare('INSERT INTO sessions (week_number, title, date, close_at) VALUES (?, ?, ?, ?)');
-    const result = stmt.run(week_number, title, date, close_at || null);
-    res.json({ id: result.lastInsertRowid, week_number, title, date, close_at: close_at || null });
+    const token = crypto.randomBytes(16).toString('hex');
+    const stmt = db.prepare('INSERT INTO sessions (week_number, title, date, close_at, academic_year, term, token) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const result = stmt.run(week_number, title, date, close_at || null, academic_year, term, token);
+    res.json({ id: result.lastInsertRowid, week_number, title, date, close_at: close_at || null, academic_year, term, token });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to create session' });
@@ -477,9 +670,9 @@ app.delete('/api/sessions/:id', (req, res) => {
 
 // Attendance CRUD
 app.post('/api/attendances', async (req, res) => {
-  const { session_id, prefix, first_name, last_name, student_id, class_year, major_code, room } = req.body;
+  const { session_id, prefix, first_name, last_name, student_id, level, year, major_name, major_code, room } = req.body;
   
-  if (!session_id || !prefix || !first_name || !last_name || !student_id || !class_year || !major_code || !room) {
+  if (!session_id || !prefix || !first_name || !last_name || !student_id || !level || !year || !major_name || !major_code || !room) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
 
@@ -491,7 +684,7 @@ app.post('/api/attendances', async (req, res) => {
   try {
     // Check if session exists and is active/not expired
     const sessionStmt = db.prepare('SELECT * FROM sessions WHERE id = ?');
-    const session = sessionStmt.get(session_id) as { id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null } | undefined;
+    const session = sessionStmt.get(session_id) as any;
 
     if (!session) {
       return res.status(404).json({ error: 'ไม่พบคราบกิจกรรมนี้ในระบบ' });
@@ -519,8 +712,8 @@ app.post('/api/attendances', async (req, res) => {
 
     // Insert attendance
     const insertStmt = db.prepare(`
-      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = insertStmt.run(
       session_id, 
@@ -528,11 +721,16 @@ app.post('/api/attendances', async (req, res) => {
       first_name.trim(), 
       last_name.trim(), 
       student_id, 
-      `${class_year.trim()}${major_code.trim().toUpperCase()}${room.trim()}`,
-      class_year.trim(), 
+      `${year.trim()}${major_code.trim().toUpperCase()}${room.trim()}`,
+      year.trim(), 
       major_code.trim().toUpperCase(), 
       room.trim(),
-      attendedAt
+      attendedAt,
+      session.academic_year,
+      session.term,
+      level.trim(),
+      year.trim(),
+      major_name.trim()
     );
     
     const attendanceRecord = {
@@ -542,10 +740,15 @@ app.post('/api/attendances', async (req, res) => {
       first_name: first_name.trim(),
       last_name: last_name.trim(),
       student_id,
-      class_year: class_year.trim(),
+      class_year: year.trim(),
       major_code: major_code.trim().toUpperCase(),
       room: room.trim(),
-      attended_at: attendedAt
+      attended_at: attendedAt,
+      academic_year: session.academic_year,
+      term: session.term,
+      level: level.trim(),
+      year: year.trim(),
+      major_name: major_name.trim()
     };
 
     // Trigger async sync to Google Sheets
@@ -575,12 +778,170 @@ app.get('/api/attendances/session/:sessionId', (req, res) => {
   }
 });
 
+// Attendance heatmap: returns sessions + students with per-session attendance flags
+app.get('/api/attendance-heatmap', (req, res) => {
+  const { level, year, major_code, room } = req.query as Record<string, string>;
+  const { academic_year, term } = getActiveSettings();
+  try {
+    // 1) Get all sessions for this term
+    const sessions = db.prepare(
+      'SELECT id, week_number, title, date FROM sessions WHERE academic_year = ? AND term = ? ORDER BY week_number ASC'
+    ).all(academic_year, term) as { id: number; week_number: number; title: string; date: string }[];
+
+    // 2) Build student query with optional filters
+    let studentQuery = 'SELECT * FROM students WHERE academic_year = ? AND term = ?';
+    const studentParams: any[] = [academic_year, term];
+    if (level)      { studentQuery += ' AND level = ?';      studentParams.push(level); }
+    if (year)       { studentQuery += ' AND year = ?';       studentParams.push(year); }
+    if (major_code) { studentQuery += ' AND major_code = ?'; studentParams.push(major_code); }
+    if (room)       { studentQuery += ' AND room = ?';       studentParams.push(room); }
+    studentQuery += ' ORDER BY student_id ASC';
+    const students = db.prepare(studentQuery).all(studentParams) as any[];
+
+    // 3) Get attendance flags for these students in this term
+    const sessionIds = sessions.map(s => s.id);
+    if (sessionIds.length === 0) {
+      return res.json({ sessions, students: students.map(s => ({ ...s, attendance: {}, remarks: {} })) });
+    }
+    const placeholders = sessionIds.map(() => '?').join(',');
+    const studentIds = students.map(s => s.student_id);
+    if (studentIds.length === 0) {
+      return res.json({ sessions, students: [] });
+    }
+    const studentPlaceholders = studentIds.map(() => '?').join(',');
+    const attRows = db.prepare(`
+      SELECT student_id, session_id, attended_at
+      FROM attendances
+      WHERE session_id IN (${placeholders})
+        AND student_id IN (${studentPlaceholders})
+    `).all([...sessionIds, ...studentIds]) as { student_id: string; session_id: number; attended_at: string }[];
+
+    // 4) Build lookup map: student_id -> { session_id: attended_at }
+    const attMap: Record<string, Record<number, string>> = {};
+    for (const row of attRows) {
+      if (!attMap[row.student_id]) attMap[row.student_id] = {};
+      attMap[row.student_id][row.session_id] = row.attended_at;
+    }
+
+    // 5) Fetch attendance remarks for these students and sessions
+    const remarkRows = db.prepare(`
+      SELECT student_id, session_id, remark
+      FROM attendance_remarks
+      WHERE session_id IN (${placeholders})
+        AND student_id IN (${studentPlaceholders})
+    `).all([...sessionIds, ...studentIds]) as { student_id: string; session_id: number; remark: string }[];
+
+    const remarkMap: Record<string, Record<number, string>> = {};
+    for (const row of remarkRows) {
+      if (!remarkMap[row.student_id]) remarkMap[row.student_id] = {};
+      remarkMap[row.student_id][row.session_id] = row.remark;
+    }
+
+    const result = students.map(s => ({
+      ...s,
+      attendance: attMap[s.student_id] || {},
+      remarks: remarkMap[s.student_id] || {}
+    }));
+
+    res.json({ sessions, students: result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch attendance heatmap' });
+  }
+});
+
+// Update attendance status and remark
+app.post('/api/attendances/update-status-remark', (req, res) => {
+  const { student_id, session_id, status, remark } = req.body;
+  if (!student_id || !session_id || !status) {
+    return res.status(400).json({ error: 'กรุณาระบุข้อมูลให้ครบถ้วน' });
+  }
+
+  try {
+    // 1) Handle status
+    const currentAtt = db.prepare('SELECT id FROM attendances WHERE session_id = ? AND student_id = ?').get(session_id, student_id) as { id: number } | undefined;
+
+    if (status === 'present') {
+      if (!currentAtt) {
+        // Need to fetch student info to insert attendance record
+        const student = db.prepare('SELECT * FROM students WHERE student_id = ?').get(student_id) as any;
+        const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(session_id) as any;
+
+        if (student && session) {
+          const insertStmt = db.prepare(`
+            INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          const attendedAt = new Date().toISOString();
+          insertStmt.run(
+            session_id,
+            student.prefix || '',
+            student.first_name,
+            student.last_name,
+            student_id,
+            `${student.year}${student.major_code}${student.room}`,
+            student.year,
+            student.major_code,
+            student.room,
+            attendedAt,
+            session.academic_year,
+            session.term,
+            student.level,
+            student.year,
+            student.major_name
+          );
+
+          // Trigger sync to Google Sheets
+          const attendanceRecord = {
+            session_id,
+            prefix: student.prefix || '',
+            first_name: student.first_name,
+            last_name: student.last_name,
+            student_id,
+            class_year: student.year,
+            major_code: student.major_code,
+            room: student.room,
+            attended_at: attendedAt,
+            academic_year: session.academic_year,
+            term: session.term,
+            level: student.level,
+            year: student.year,
+            major_name: student.major_name
+          };
+          syncToGoogleSheets(session, attendanceRecord);
+        }
+      }
+    } else if (status === 'absent') {
+      if (currentAtt) {
+        // Delete attendance record
+        db.prepare('DELETE FROM attendances WHERE id = ?').run(currentAtt.id);
+      }
+    }
+
+    // 2) Handle remark
+    if (remark && remark.trim() !== '') {
+      db.prepare(`
+        INSERT OR REPLACE INTO attendance_remarks (session_id, student_id, remark)
+        VALUES (?, ?, ?)
+      `).run(session_id, student_id, remark.trim());
+    } else {
+      db.prepare('DELETE FROM attendance_remarks WHERE session_id = ? AND student_id = ?').run(session_id, student_id);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating attendance status and remark:', error);
+    res.status(500).json({ error: 'ไม่สามารถบันทึกข้อมูลได้' });
+  }
+});
+
+
 // Update a specific attendance record
 app.put('/api/attendances/:id', (req, res) => {
   const { id } = req.params;
-  const { prefix, first_name, last_name, student_id, class_year, major_code, room } = req.body;
+  const { prefix, first_name, last_name, student_id, level, year, major_name, major_code, room } = req.body;
 
-  if (!prefix || !first_name || !last_name || !student_id || !class_year || !major_code || !room) {
+  if (!prefix || !first_name || !last_name || !student_id || !level || !year || !major_name || !major_code || !room) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
 
@@ -591,7 +952,7 @@ app.put('/api/attendances/:id', (req, res) => {
   try {
     const stmt = db.prepare(`
       UPDATE attendances 
-      SET prefix = ?, first_name = ?, last_name = ?, student_id = ?, major = ?, class_year = ?, major_code = ?, room = ?
+      SET prefix = ?, first_name = ?, last_name = ?, student_id = ?, major = ?, class_year = ?, major_code = ?, room = ?, level = ?, year = ?, major_name = ?
       WHERE id = ?
     `);
     const result = stmt.run(
@@ -599,10 +960,13 @@ app.put('/api/attendances/:id', (req, res) => {
       first_name.trim(),
       last_name.trim(),
       student_id,
-      `${class_year.trim()}${major_code.trim().toUpperCase()}${room.trim()}`,
-      class_year.trim(),
+      `${year.trim()}${major_code.trim().toUpperCase()}${room.trim()}`,
+      year.trim(),
       major_code.trim().toUpperCase(),
       room.trim(),
+      level.trim(),
+      year.trim(),
+      major_name.trim(),
       id
     );
 
@@ -637,6 +1001,7 @@ app.delete('/api/attendances/:id', (req, res) => {
 
 // Search student attendance history
 app.get('/api/attendances/recent', (req, res) => {
+  const { academic_year, term } = getActiveSettings();
   try {
     const stmt = db.prepare(`
       SELECT 
@@ -649,14 +1014,18 @@ app.get('/api/attendances/recent', (req, res) => {
         a.major_code,
         a.room,
         a.attended_at,
+        a.level,
+        a.year,
+        a.major_name,
         s.week_number, 
         s.title as session_title
       FROM attendances a
       JOIN sessions s ON a.session_id = s.id
+      WHERE a.academic_year = ? AND a.term = ?
       ORDER BY a.attended_at DESC
       LIMIT 10
     `);
-    const records = stmt.all();
+    const records = stmt.all(academic_year, term);
     res.json(records);
   } catch (error) {
     console.error(error);
@@ -666,6 +1035,7 @@ app.get('/api/attendances/recent', (req, res) => {
 
 app.get('/api/attendances/student/:studentId', (req, res) => {
   const { studentId } = req.params;
+  const { academic_year, term } = getActiveSettings();
   try {
     const stmt = db.prepare(`
       SELECT 
@@ -679,15 +1049,18 @@ app.get('/api/attendances/student/:studentId', (req, res) => {
         a.major_code,
         a.room,
         a.attended_at,
+        a.level,
+        a.year,
+        a.major_name,
         s.week_number, 
         s.title as session_title, 
         s.date as session_date 
       FROM attendances a 
       JOIN sessions s ON a.session_id = s.id 
-      WHERE a.student_id = ? 
+      WHERE a.student_id = ? AND a.academic_year = ? AND a.term = ?
       ORDER BY s.week_number ASC
     `);
-    const records = stmt.all(studentId);
+    const records = stmt.all(studentId, academic_year, term);
     res.json(records);
   } catch (error) {
     console.error(error);
@@ -697,10 +1070,11 @@ app.get('/api/attendances/student/:studentId', (req, res) => {
 
 // Stats overview
 app.get('/api/stats', (req, res) => {
+  const { academic_year, term } = getActiveSettings();
   try {
-    const totalSessions = (db.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number }).count;
-    const totalAttendances = (db.prepare('SELECT COUNT(*) as count FROM attendances').get() as { count: number }).count;
-    const totalStudents = (db.prepare('SELECT COUNT(*) as count FROM students').get() as { count: number }).count;
+    const totalSessions = (db.prepare('SELECT COUNT(*) as count FROM sessions WHERE academic_year = ? AND term = ?').get(academic_year, term) as { count: number }).count;
+    const totalAttendances = (db.prepare('SELECT COUNT(*) as count FROM attendances WHERE academic_year = ? AND term = ?').get(academic_year, term) as { count: number }).count;
+    const totalStudents = (db.prepare('SELECT COUNT(*) as count FROM students WHERE academic_year = ? AND term = ?').get(academic_year, term) as { count: number }).count;
     
     // Check if Sheets is connected
     const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() as { sheet_id: string; credentials_json: string } | undefined;
@@ -720,15 +1094,17 @@ app.get('/api/stats', (req, res) => {
 
 // Advanced Stats API for redone dashboard
 app.get('/api/admin/dashboard-stats', (req, res) => {
+  const { academic_year, term } = getActiveSettings();
   try {
     const sessionIdQuery = req.query.sessionId;
-    const classYear = req.query.classYear as string || '';
+    const level = req.query.level as string || '';
+    const classYear = req.query.classYear as string || ''; // representing 'year'
     const majorCode = req.query.majorCode as string || '';
     const room = req.query.room as string || '';
     const gender = req.query.gender as string || '';
 
-    // 1. Fetch all sessions for selection dropdown
-    const allSessions = db.prepare('SELECT id, week_number, title, date, is_active, close_at FROM sessions ORDER BY week_number ASC').all() as any[];
+    // 1. Fetch all sessions for selection dropdown (filtered by active semester)
+    const allSessions = db.prepare('SELECT id, week_number, title, date, is_active, close_at FROM sessions WHERE academic_year = ? AND term = ? ORDER BY week_number ASC').all(academic_year, term) as any[];
 
     if (allSessions.length === 0) {
       return res.json({
@@ -757,7 +1133,7 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
         targetSessionId = parsed;
       } else {
         // Default to active session if exists, otherwise the latest session
-        const activeSession = db.prepare('SELECT id FROM sessions WHERE is_active = 1 ORDER BY date DESC, id DESC LIMIT 1').get() as { id: number } | undefined;
+        const activeSession = db.prepare('SELECT id FROM sessions WHERE is_active = 1 AND academic_year = ? AND term = ? ORDER BY date DESC, id DESC LIMIT 1').get(academic_year, term) as { id: number } | undefined;
         if (activeSession) {
           targetSessionId = activeSession.id;
         } else {
@@ -770,8 +1146,12 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
     let baseFilterSql = '';
     const baseFilterParams: any[] = [];
 
+    if (level) {
+      baseFilterSql += ' AND level = ?';
+      baseFilterParams.push(level);
+    }
     if (classYear) {
-      baseFilterSql += ' AND class_year = ?';
+      baseFilterSql += ' AND year = ?';
       baseFilterParams.push(classYear);
     }
     if (majorCode) {
@@ -793,21 +1173,20 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
     }
 
     // 2. Fetch expected students from roster (with full filters)
-    const rosterStmt = db.prepare(`SELECT * FROM students WHERE 1=1 ${filterSql} ORDER BY student_id ASC`);
-    const expectedStudents = rosterStmt.all(...filterParams) as any[];
+    const rosterStmt = db.prepare(`SELECT * FROM students WHERE academic_year = ? AND term = ? ${filterSql} ORDER BY student_id ASC`);
+    const expectedStudents = rosterStmt.all(academic_year, term, ...filterParams) as any[];
 
     // 3. Fetch present students checked in
     let presentList: any[] = [];
     if (targetSessionId === 'all') {
-      let attFilterSql = filterSql.replace(/(class_year|major_code|room|prefix)/g, 'a.$1');
       const presentStmt = db.prepare(`
         SELECT a.*, s.week_number, s.title as session_title 
         FROM attendances a
         JOIN sessions s ON a.session_id = s.id
-        WHERE 1=1 ${attFilterSql} 
+        WHERE a.academic_year = ? AND a.term = ? ${filterSql} 
         ORDER BY a.attended_at DESC
       `);
-      presentList = presentStmt.all(...filterParams) as any[];
+      presentList = presentStmt.all(academic_year, term, ...filterParams) as any[];
     } else {
       const presentStmt = db.prepare(`
         SELECT * FROM attendances 
@@ -825,25 +1204,25 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
         const sessionAbsentStmt = db.prepare(`
           SELECT s.*, ? as session_id, ? as week_number, ? as session_title
           FROM students s
-          WHERE 1=1 ${filterSql} 
+          WHERE s.academic_year = ? AND s.term = ? ${filterSql} 
             AND s.student_id NOT IN (
               SELECT student_id FROM attendances WHERE session_id = ?
             )
         `);
-        const sessionAbsents = sessionAbsentStmt.all(session.id, session.week_number, session.title, ...filterParams, session.id) as any[];
+        const sessionAbsents = sessionAbsentStmt.all(session.id, session.week_number, session.title, academic_year, term, ...filterParams, session.id) as any[];
         absentList.push(...sessionAbsents);
       }
       absentList.sort((a, b) => a.student_id.localeCompare(b.student_id) || a.week_number - b.week_number);
     } else {
       const absentStmt = db.prepare(`
         SELECT * FROM students 
-        WHERE 1=1 ${filterSql} 
+        WHERE academic_year = ? AND term = ? ${filterSql} 
           AND student_id NOT IN (
             SELECT student_id FROM attendances WHERE session_id = ?
           )
         ORDER BY student_id ASC
       `);
-      absentList = absentStmt.all(...filterParams, targetSessionId) as any[];
+      absentList = absentStmt.all(academic_year, term, ...filterParams, targetSessionId) as any[];
     }
     const totalAbsent = absentList.length;
 
@@ -857,11 +1236,11 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
       const presCount = db.prepare(`SELECT COUNT(*) as count FROM attendances WHERE session_id = ? ${filterSql}`).get(s.id, ...filterParams) as { count: number };
       const absCount = db.prepare(`
         SELECT COUNT(*) as count FROM students 
-        WHERE 1=1 ${filterSql} 
+        WHERE academic_year = ? AND term = ? ${filterSql} 
           AND student_id NOT IN (
             SELECT student_id FROM attendances WHERE session_id = ?
           )
-      `).get(...filterParams, s.id) as { count: number };
+      `).get(academic_year, term, ...filterParams, s.id) as { count: number };
       
       const totalExp = presCount.count + absCount.count;
       const rate = totalExp > 0 ? Math.round((presCount.count / totalExp) * 100) : 0;
@@ -873,19 +1252,20 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
       };
     });
 
-    // 6. Stats by Class Group (class_year + major_code + room, e.g. 1ชทค1, 2สทค3) for the selected session
+    // 6. Stats by Class Group (level + year + major_name + major_code + room/group) for the selected session
     const classGroups = db.prepare(`
-      SELECT DISTINCT class_year, major_code, room FROM students
+      SELECT DISTINCT level, year, major_name, major_code, room FROM students WHERE academic_year = ? AND term = ?
       UNION
-      SELECT class_year, major_code, room FROM majors
-      ORDER BY class_year ASC, major_code ASC, room ASC
-    `).all() as Array<{ class_year: string; major_code: string; room: string }>;
+      SELECT level, year, major_name, major_code, room FROM majors WHERE academic_year = ? AND term = ?
+      ORDER BY level ASC, year ASC, major_code ASC, room ASC
+    `).all(academic_year, term, academic_year, term) as Array<{ level: string; year: string; major_name: string; major_code: string; room: string }>;
 
     const roomStats = classGroups.map(g => {
-      const gLabel = `${g.class_year}${g.major_code}${g.room}`;
+      const gLabel = `${g.year}${g.major_code}${g.room}`;
+      const gDetails = `${g.level} ปี ${g.year} ${g.major_name} กลุ่ม ${g.room}`;
       
-      let gFilterSql = ' AND class_year = ? AND major_code = ? AND room = ?';
-      const gFilterParams = [g.class_year, g.major_code, g.room];
+      let gFilterSql = ' AND level = ? AND year = ? AND major_code = ? AND room = ?';
+      const gFilterParams = [g.level, g.year, g.major_code, g.room];
 
       if (gender === 'male') {
         gFilterSql += " AND (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
@@ -897,17 +1277,17 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
       let gAbsentCount = 0;
 
       if (targetSessionId === 'all') {
-        const pres = db.prepare(`SELECT COUNT(*) as count FROM attendances WHERE 1=1 ${gFilterSql}`).get(...gFilterParams) as { count: number };
+        const pres = db.prepare(`SELECT COUNT(*) as count FROM attendances WHERE academic_year = ? AND term = ? ${gFilterSql}`).get(academic_year, term, ...gFilterParams) as { count: number };
         gPresentCount = pres.count;
 
         for (const session of allSessions) {
           const abs = db.prepare(`
             SELECT COUNT(*) as count FROM students 
-            WHERE 1=1 ${gFilterSql} 
+            WHERE academic_year = ? AND term = ? ${gFilterSql} 
               AND student_id NOT IN (
                 SELECT student_id FROM attendances WHERE session_id = ?
               )
-          `).get(...gFilterParams, session.id) as { count: number };
+          `).get(academic_year, term, ...gFilterParams, session.id) as { count: number };
           gAbsentCount += abs.count;
         }
       } else {
@@ -916,11 +1296,11 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
 
         const abs = db.prepare(`
           SELECT COUNT(*) as count FROM students 
-          WHERE 1=1 ${gFilterSql} 
+          WHERE academic_year = ? AND term = ? ${gFilterSql} 
             AND student_id NOT IN (
               SELECT student_id FROM attendances WHERE session_id = ?
             )
-        `).get(...gFilterParams, targetSessionId) as { count: number };
+        `).get(academic_year, term, ...gFilterParams, targetSessionId) as { count: number };
         gAbsentCount = abs.count;
       }
 
@@ -928,6 +1308,7 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
 
       return {
         room: gLabel,
+        roomDetails: gDetails,
         expected: gExpected,
         present: gPresentCount,
         absent: gAbsentCount,
@@ -1158,10 +1539,11 @@ function parseStudentName(fullName: string) {
 
 // Student APIs
 app.get('/api/students', (req, res) => {
-  const { search, class_year, major_code, room } = req.query;
+  const { search, level, year, major_code, room } = req.query;
+  const { academic_year, term } = getActiveSettings();
   try {
-    let query = 'SELECT * FROM students WHERE 1=1';
-    const params: any[] = [];
+    let query = 'SELECT * FROM students WHERE academic_year = ? AND term = ?';
+    const params: any[] = [academic_year, term];
     
     if (search) {
       query += ' AND (student_id LIKE ? OR first_name LIKE ? OR last_name LIKE ?)';
@@ -1169,9 +1551,14 @@ app.get('/api/students', (req, res) => {
       params.push(searchParam, searchParam, searchParam);
     }
     
-    if (class_year) {
-      query += ' AND class_year = ?';
-      params.push(class_year);
+    if (level) {
+      query += ' AND level = ?';
+      params.push(level);
+    }
+    
+    if (year) {
+      query += ' AND year = ?';
+      params.push(year);
     }
     
     if (major_code) {
@@ -1197,9 +1584,10 @@ app.get('/api/students', (req, res) => {
 
 app.get('/api/students/:studentId', (req, res) => {
   const { studentId } = req.params;
+  const { academic_year, term } = getActiveSettings();
   try {
-    const stmt = db.prepare('SELECT * FROM students WHERE student_id = ?');
-    const student = stmt.get(studentId);
+    const stmt = db.prepare('SELECT * FROM students WHERE student_id = ? AND academic_year = ? AND term = ?');
+    const student = stmt.get(studentId, academic_year, term);
     if (!student) {
       return res.status(404).json({ error: 'ไม่พบข้อมูลนักศึกษาในระบบลงทะเบียนล่วงหน้า' });
     }
@@ -1211,9 +1599,10 @@ app.get('/api/students/:studentId', (req, res) => {
 });
 
 app.post('/api/students/import', (req, res) => {
-  const { class_year, major_code, room, student_ids, student_names } = req.body;
+  const { level, year, major_name, major_code, room, student_ids, student_names } = req.body;
+  const { academic_year, term } = getActiveSettings();
   
-  if (!class_year || !major_code || !room || !student_ids || !student_names) {
+  if (!level || !year || !major_name || !major_code || !room || !student_ids || !student_names) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
   
@@ -1226,8 +1615,8 @@ app.post('/api/students/import', (req, res) => {
   
   try {
     const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO students (student_id, prefix, first_name, last_name, class_year, major_code, room)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO students (student_id, prefix, first_name, last_name, academic_year, term, level, year, major_name, major_code, room)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const runTransaction = db.transaction((dataList: any[]) => {
@@ -1237,7 +1626,11 @@ app.post('/api/students/import', (req, res) => {
           data.prefix,
           data.first_name,
           data.last_name,
-          data.class_year,
+          data.academic_year,
+          data.term,
+          data.level,
+          data.year,
+          data.major_name,
           data.major_code,
           data.room
         );
@@ -1251,7 +1644,11 @@ app.post('/api/students/import', (req, res) => {
         prefix,
         first_name,
         last_name,
-        class_year: class_year.trim(),
+        academic_year,
+        term,
+        level: level.trim(),
+        year: year.trim(),
+        major_name: major_name.trim(),
         major_code: major_code.trim().toUpperCase(),
         room: room.trim()
       };
@@ -1267,9 +1664,10 @@ app.post('/api/students/import', (req, res) => {
 
 app.put('/api/students/:id', (req, res) => {
   const { id } = req.params;
-  const { student_id, prefix, first_name, last_name, class_year, major_code, room } = req.body;
+  const { student_id, prefix, first_name, last_name, level, year, major_name, major_code, room } = req.body;
+  const { academic_year, term } = getActiveSettings();
 
-  if (!student_id || !prefix || !first_name || !last_name || !class_year || !major_code || !room) {
+  if (!student_id || !prefix || !first_name || !last_name || !level || !year || !major_name || !major_code || !room) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
 
@@ -1278,18 +1676,18 @@ app.put('/api/students/:id', (req, res) => {
   }
 
   try {
-    const checkStmt = db.prepare('SELECT id FROM students WHERE student_id = ? AND id != ?');
-    const existing = checkStmt.get(student_id, id);
+    const checkStmt = db.prepare('SELECT id FROM students WHERE student_id = ? AND academic_year = ? AND term = ? AND id != ?');
+    const existing = checkStmt.get(student_id, academic_year, term, id);
     if (existing) {
-      return res.status(400).json({ error: 'รหัสนักศึกษานี้ถูกใช้งานโดยนักศึกษาคนอื่นในระบบแล้ว' });
+      return res.status(400).json({ error: 'รหัสนักศึกษานี้ถูกใช้งานโดยนักศึกษาคนอื่นในเทอมนี้แล้ว' });
     }
 
     const stmt = db.prepare(`
       UPDATE students 
-      SET student_id = ?, prefix = ?, first_name = ?, last_name = ?, class_year = ?, major_code = ?, room = ?
+      SET student_id = ?, prefix = ?, first_name = ?, last_name = ?, level = ?, year = ?, major_name = ?, major_code = ?, room = ?
       WHERE id = ?
     `);
-    stmt.run(student_id, prefix, first_name, last_name, class_year, major_code, room, id);
+    stmt.run(student_id, prefix, first_name, last_name, level, year, major_name, major_code, room, id);
     res.json({ success: true });
   } catch (error) {
     console.error(error);
