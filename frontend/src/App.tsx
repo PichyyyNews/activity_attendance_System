@@ -37,13 +37,22 @@ function AdminLayout() {
   const [activeTerm, setActiveTerm] = useState('1');
   const [settings, setSettings] = useState<any>(null);
 
+  interface AcademicYear {
+    id: number;
+    year: string;
+    term: string;
+    is_active: number;
+  }
+
   // Custom academic years and terms states
-  const [academicYears, setAcademicYears] = useState<string[]>([]);
-  const [terms, setTerms] = useState<string[]>([]);
+  const [allAcademicYears, setAllAcademicYears] = useState<AcademicYear[]>([]);
   const [showYearModal, setShowYearModal] = useState(false);
   const [newCustomYear, setNewCustomYear] = useState('');
   const [newCustomTerm, setNewCustomTerm] = useState('1');
   const [yearModalError, setYearModalError] = useState('');
+
+  const academicYears = Array.from(new Set(allAcademicYears.map(ay => ay.year))).sort((a, b) => b.localeCompare(a));
+  const terms = allAcademicYears.filter(ay => ay.year === activeYear).map(ay => ay.term).sort((a, b) => a.localeCompare(b));
 
   const [pin, setPin] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(
@@ -51,16 +60,15 @@ function AdminLayout() {
   );
   const [pinError, setPinError] = useState('');
 
-  // Fetch settings, academic years and terms
+  // Fetch settings and all academic years from database
   useEffect(() => {
     if (!isAuthenticated) return;
     
     Promise.all([
       axios.get('/api/settings'),
-      axios.get('/api/academic-years/list'),
-      axios.get('/api/terms')
+      axios.get('/api/academic-years')
     ])
-      .then(([settingsRes, yearsRes, termsRes]) => {
+      .then(([settingsRes, yearsRes]) => {
         const data = settingsRes.data;
         if (data) {
           setSettings(data);
@@ -68,20 +76,24 @@ function AdminLayout() {
           setActiveYear(data.academic_year || '2569');
           setActiveTerm(data.term || '1');
         }
-        setAcademicYears(yearsRes.data || []);
-        setTerms(termsRes.data || []);
+        setAllAcademicYears(yearsRes.data || []);
       })
-      .catch(err => console.error('Error fetching settings and lookup lists:', err));
+      .catch(err => console.error('Error fetching settings and academic years:', err));
   }, [isAuthenticated]);
 
   const handleSemesterChange = async (year: string, term: string) => {
     try {
-      await axios.post('/api/settings', {
-        sheet_id: settings?.sheet_id || '',
-        credentials_json: settings?.credentials_json || '',
-        academic_year: year,
-        term: term
-      });
+      const matched = allAcademicYears.find(ay => ay.year === year && ay.term === term);
+      if (matched) {
+        await axios.post(`/api/academic-years/${matched.id}/activate`);
+      } else {
+        await axios.post('/api/settings', {
+          sheet_id: settings?.sheet_id || '',
+          credentials_json: settings?.credentials_json || '',
+          academic_year: year,
+          term: term
+        });
+      }
       setActiveYear(year);
       setActiveTerm(term);
       window.location.reload();
@@ -268,7 +280,15 @@ function AdminLayout() {
                   <span className="text-[9px] font-bold text-muted-soft uppercase">ปีการศึกษา</span>
                   <select 
                     value={activeYear} 
-                    onChange={e => handleSemesterChange(e.target.value, activeTerm)}
+                    onChange={e => {
+                      const newYear = e.target.value;
+                      const availableTerms = allAcademicYears.filter(ay => ay.year === newYear).map(ay => ay.term);
+                      let nextTerm = activeTerm;
+                      if (availableTerms.length > 0 && !availableTerms.includes(activeTerm)) {
+                        nextTerm = availableTerms.sort((a, b) => a.localeCompare(b))[0];
+                      }
+                      handleSemesterChange(newYear, nextTerm);
+                    }}
                     className="bg-transparent border-none focus:ring-0 focus:outline-none text-ink font-extrabold text-sm cursor-pointer w-full p-0 mt-0.5"
                   >
                     {Array.from(new Set([activeYear, ...academicYears])).sort((a, b) => b.localeCompare(a)).map(yr => (
@@ -382,7 +402,13 @@ function AdminLayout() {
                       <select 
                         value={activeYear} 
                         onChange={e => {
-                          handleSemesterChange(e.target.value, activeTerm);
+                          const newYear = e.target.value;
+                          const availableTerms = allAcademicYears.filter(ay => ay.year === newYear).map(ay => ay.term);
+                          let nextTerm = activeTerm;
+                          if (availableTerms.length > 0 && !availableTerms.includes(activeTerm)) {
+                            nextTerm = availableTerms.sort((a, b) => a.localeCompare(b))[0];
+                          }
+                          handleSemesterChange(newYear, nextTerm);
                           setIsMenuOpen(false);
                         }}
                         className="bg-transparent border-none focus:ring-0 focus:outline-none text-ink font-bold text-xs cursor-pointer w-full p-0"

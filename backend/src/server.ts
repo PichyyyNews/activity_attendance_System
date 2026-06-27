@@ -387,6 +387,13 @@ app.post('/api/settings', (req, res) => {
       term = excluded.term
     `);
     stmt.run(cleanSheetId, credentials_json || '', academic_year || '2569', term || '1');
+
+    const finalYear = (academic_year || '2569').trim();
+    const finalTerm = (term || '1').trim();
+    db.prepare('INSERT OR IGNORE INTO academic_years (year, term, is_active) VALUES (?, ?, 0)').run(finalYear, finalTerm);
+    db.prepare('UPDATE academic_years SET is_active = 0').run();
+    db.prepare('UPDATE academic_years SET is_active = 1 WHERE year = ? AND term = ?').run(finalYear, finalTerm);
+
     res.json({ success: true });
   } catch (error) {
     console.error(error);
