@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import crypto from 'crypto';
+import fs from 'fs';
+import multer from 'multer';
 import { google } from 'googleapis';
 import db from './db';
 
@@ -710,10 +712,22 @@ app.post('/api/attendances', async (req, res) => {
       return res.status(400).json({ error: 'คุณได้เช็กชื่อเข้าร่วมคาบกิจกรรมสัปดาห์นี้ไปแล้ว' });
     }
 
+    // Check duplicate check-in by device_uuid to prevent proxy check-ins
+    const { device_uuid } = req.body;
+    if (device_uuid) {
+      const deviceDuplicateStmt = db.prepare('SELECT student_id, first_name, last_name FROM attendances WHERE session_id = ? AND device_uuid = ?');
+      const existing = deviceDuplicateStmt.get(session_id, device_uuid) as any;
+      if (existing) {
+        return res.status(400).json({ 
+          error: `เครื่องนี้ได้ทำการเช็กชื่อกิจกรรมครั้งนี้ไปแล้ว (รหัสนักศึกษา: ${existing.student_id} - ${existing.first_name} ${existing.last_name}) ไม่สามารถใช้เช็กชื่อให้บุคคลอื่นได้` 
+        });
+      }
+    }
+
     // Insert attendance
     const insertStmt = db.prepare(`
-      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = insertStmt.run(
       session_id, 
@@ -730,7 +744,8 @@ app.post('/api/attendances', async (req, res) => {
       session.term,
       level.trim(),
       year.trim(),
-      major_name.trim()
+      major_name.trim(),
+      device_uuid || null
     );
     
     const attendanceRecord = {
@@ -758,6 +773,19 @@ app.post('/api/attendances', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to record attendance' });
+  }
+});
+
+// Check if a specific device has already checked in for a session
+app.get('/api/attendances/session/:sessionId/device/:deviceUuid', (req, res) => {
+  const { sessionId, deviceUuid } = req.params;
+  try {
+    const stmt = db.prepare('SELECT student_id, prefix, first_name, last_name, level, year, major_code, major_name, room, attended_at FROM attendances WHERE session_id = ? AND device_uuid = ?');
+    const attendance = stmt.get(sessionId, deviceUuid) as any;
+    res.json(attendance || null);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to check device attendance' });
   }
 });
 
@@ -1715,6 +1743,345 @@ app.delete('/api/students', (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to clear students roster' });
+  }
+});
+
+// ============================================================
+// BACKUP SYSTEM ROUTES
+// ============================================================
+
+const dataDir = path.join(__dirname, '../data');
+const backupDir = path.join(dataDir, 'backups');
+const snapshotsDir = path.join(backupDir, 'snapshots');
+
+// Ensure backup directories exist
+if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+if (!fs.existsSync(snapshotsDir)) fs.mkdirSync(snapshotsDir, { recursive: true });
+
+// Multer for import uploads (memory storage)
+const importStorage = multer.memoryStorage();
+const importUpload = multer({ storage: importStorage, limits: { fileSize: 100 * 1024 * 1024 } });
+
+function logBackupAction(log_type: string, action: string, description: string, metadata: object, status: string = 'success') {
+  try {
+    db.prepare(
+      'INSERT INTO backup_logs (log_type, action, description, metadata, status) VALUES (?, ?, ?, ?, ?)'
+    ).run(log_type, action, description, JSON.stringify(metadata), status);
+  } catch (e) {
+    console.error('Error writing backup log:', e);
+  }
+}
+
+function getTableRecordCounts(): Record<string, number> {
+  const tables = ['settings', 'sessions', 'attendances', 'majors', 'students', 'academic_years', 'attendance_remarks'];
+  const counts: Record<string, number> = {};
+  for (const t of tables) {
+    try {
+      const row = db.prepare(`SELECT COUNT(*) as cnt FROM ${t}`).get() as { cnt: number };
+      counts[t] = row.cnt;
+    } catch { counts[t] = 0; }
+  }
+  return counts;
+}
+
+// GET /api/backup/export — Export all tables as downloadable JSON
+app.get('/api/backup/export', (req, res) => {
+  try {
+    const tables = ['settings', 'sessions', 'attendances', 'majors', 'students', 'academic_years', 'attendance_remarks'];
+    const exportData: Record<string, any[]> = {};
+    for (const table of tables) {
+      try {
+        exportData[table] = db.prepare(`SELECT * FROM ${table}`).all();
+      } catch { exportData[table] = []; }
+    }
+    const payload = {
+      exported_at: new Date().toISOString(),
+      version: '1.0',
+      system: 'AAS-Activity-Attendance-System',
+      record_counts: getTableRecordCounts(),
+      data: exportData
+    };
+    const filename = `AAS_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+    logBackupAction('export', 'EXPORT_DATA', 'ส่งออกข้อมูลทั้งระบบเป็นไฟล์ JSON', { filename, record_counts: payload.record_counts });
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.json(payload);
+  } catch (error) {
+    console.error('Export error:', error);
+    logBackupAction('export', 'EXPORT_DATA', 'ส่งออกข้อมูลล้มเหลว', {}, 'error');
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
+// POST /api/backup/import — Import JSON backup
+app.post('/api/backup/import', importUpload.single('backup_file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'ไม่พบไฟล์ที่อัปโหลด' });
+    }
+    const raw = req.file.buffer.toString('utf8');
+    let payload: any;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return res.status(400).json({ error: 'รูปแบบไฟล์ไม่ถูกต้อง ต้องเป็น JSON' });
+    }
+    if (!payload.data || !payload.version) {
+      return res.status(400).json({ error: 'ไฟล์ backup ไม่ถูกต้อง (missing data/version fields)' });
+    }
+    const { data } = payload;
+    const importedCounts: Record<string, number> = {};
+    const importTx = db.transaction(() => {
+      // Sessions
+      if (Array.isArray(data.sessions)) {
+        db.prepare('DELETE FROM sessions').run();
+        const ins = db.prepare('INSERT OR REPLACE INTO sessions (id,week_number,title,date,is_active,close_at,created_at,academic_year,term,token) VALUES (?,?,?,?,?,?,?,?,?,?)');
+        for (const r of data.sessions) ins.run(r.id,r.week_number,r.title,r.date,r.is_active,r.close_at,r.created_at,r.academic_year,r.term,r.token||null);
+        importedCounts['sessions'] = data.sessions.length;
+      }
+      // Attendances
+      if (Array.isArray(data.attendances)) {
+        db.prepare('DELETE FROM attendances').run();
+        const ins = db.prepare('INSERT OR REPLACE INTO attendances (id,session_id,prefix,first_name,last_name,student_id,major,class_year,major_code,room,attended_at,academic_year,term,level,year,major_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        for (const r of data.attendances) ins.run(r.id,r.session_id,r.prefix,r.first_name,r.last_name,r.student_id,r.major,r.class_year,r.major_code,r.room,r.attended_at,r.academic_year,r.term,r.level,r.year,r.major_name);
+        importedCounts['attendances'] = data.attendances.length;
+      }
+      // Students
+      if (Array.isArray(data.students)) {
+        db.prepare('DELETE FROM students').run();
+        const ins = db.prepare('INSERT OR REPLACE INTO students (id,student_id,prefix,first_name,last_name,academic_year,term,level,year,major_name,major_code,room,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        for (const r of data.students) ins.run(r.id,r.student_id,r.prefix,r.first_name,r.last_name,r.academic_year,r.term,r.level,r.year,r.major_name,r.major_code,r.room,r.created_at);
+        importedCounts['students'] = data.students.length;
+      }
+      // Majors
+      if (Array.isArray(data.majors)) {
+        db.prepare('DELETE FROM majors').run();
+        const ins = db.prepare('INSERT OR REPLACE INTO majors (id,academic_year,term,level,year,major_name,major_code,room,created_at) VALUES (?,?,?,?,?,?,?,?,?)');
+        for (const r of data.majors) ins.run(r.id,r.academic_year,r.term,r.level,r.year,r.major_name,r.major_code,r.room,r.created_at);
+        importedCounts['majors'] = data.majors.length;
+      }
+      // Academic Years
+      if (Array.isArray(data.academic_years)) {
+        db.prepare('DELETE FROM academic_years').run();
+        const ins = db.prepare('INSERT OR REPLACE INTO academic_years (id,year,term,is_active,created_at) VALUES (?,?,?,?,?)');
+        for (const r of data.academic_years) ins.run(r.id,r.year,r.term,r.is_active,r.created_at);
+        importedCounts['academic_years'] = data.academic_years.length;
+      }
+      // Attendance Remarks
+      if (Array.isArray(data.attendance_remarks)) {
+        db.prepare('DELETE FROM attendance_remarks').run();
+        const ins = db.prepare('INSERT OR REPLACE INTO attendance_remarks (id,session_id,student_id,remark,created_at) VALUES (?,?,?,?,?)');
+        for (const r of data.attendance_remarks) ins.run(r.id,r.session_id,r.student_id,r.remark,r.created_at);
+        importedCounts['attendance_remarks'] = data.attendance_remarks.length;
+      }
+    });
+    importTx();
+    logBackupAction('import', 'IMPORT_DATA', `นำเข้าข้อมูลจากไฟล์ ${req.file.originalname}`, { filename: req.file.originalname, original_exported_at: payload.exported_at, imported_counts: importedCounts });
+    res.json({ success: true, imported_counts: importedCounts });
+  } catch (error: any) {
+    console.error('Import error:', error);
+    logBackupAction('import', 'IMPORT_DATA', 'นำเข้าข้อมูลล้มเหลว', { error: String(error) }, 'error');
+    res.status(500).json({ error: 'Import failed: ' + error.message });
+  }
+});
+
+// POST /api/backup/snapshot — Create a SQLite file snapshot
+app.post('/api/backup/snapshot', express.json(), async (req, res) => {
+  try {
+    const label = (req.body?.label || '').trim() || 'snapshot';
+    const description = (req.body?.description || '').trim();
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const snapshotId = `snap_${ts}`;
+    const filename = `${snapshotId}.sqlite`;
+    const destPath = path.join(snapshotsDir, filename);
+    // Use SQLite backup API via better-sqlite3
+    await (db as any).backup(destPath);
+    const stats = fs.statSync(destPath);
+    const counts = getTableRecordCounts();
+    const metadata = {
+      snapshotId,
+      filename,
+      label,
+      description,
+      size_bytes: stats.size,
+      record_counts: counts,
+      created_at: new Date().toISOString()
+    };
+    logBackupAction('snapshot', 'CREATE_SNAPSHOT', `สร้าง snapshot: ${label}`, metadata);
+    res.json({ success: true, snapshot: metadata });
+  } catch (error: any) {
+    console.error('Snapshot error:', error);
+    logBackupAction('snapshot', 'CREATE_SNAPSHOT', 'สร้าง snapshot ล้มเหลว', { error: String(error) }, 'error');
+    res.status(500).json({ error: 'Snapshot failed: ' + error.message });
+  }
+});
+
+// GET /api/backup/snapshots — List all snapshots
+app.get('/api/backup/snapshots', (req, res) => {
+  try {
+    const snapshotLogs = db.prepare(
+      `SELECT * FROM backup_logs WHERE log_type = 'snapshot' AND action = 'CREATE_SNAPSHOT' AND status = 'success' ORDER BY created_at DESC`
+    ).all() as any[];
+    const snapshots = snapshotLogs.map(log => {
+      let meta: any = {};
+      try { meta = JSON.parse(log.metadata || '{}'); } catch {}
+      // Check if file still exists
+      const filePath = path.join(snapshotsDir, meta.filename || '');
+      const fileExists = meta.filename ? fs.existsSync(filePath) : false;
+      let size_bytes = meta.size_bytes || 0;
+      if (fileExists) {
+        try { size_bytes = fs.statSync(filePath).size; } catch {}
+      }
+      return {
+        id: log.id,
+        snapshotId: meta.snapshotId,
+        filename: meta.filename,
+        label: meta.label || 'snapshot',
+        description: meta.description || '',
+        size_bytes,
+        record_counts: meta.record_counts || {},
+        created_at: log.created_at,
+        file_exists: fileExists
+      };
+    });
+    res.json(snapshots);
+  } catch (error) {
+    console.error('List snapshots error:', error);
+    res.status(500).json({ error: 'Failed to list snapshots' });
+  }
+});
+
+// POST /api/backup/rollback/:snapshotId — Rollback from snapshot
+app.post('/api/backup/rollback/:snapshotId', async (req, res) => {
+  try {
+    const { snapshotId } = req.params;
+    // Find snapshot log
+    const snapshotLog = db.prepare(
+      `SELECT * FROM backup_logs WHERE log_type = 'snapshot' AND action = 'CREATE_SNAPSHOT' AND status = 'success' AND id = ?`
+    ).get(snapshotId) as any;
+    if (!snapshotLog) {
+      return res.status(404).json({ error: 'ไม่พบ snapshot ที่ระบุ' });
+    }
+    let meta: any = {};
+    try { meta = JSON.parse(snapshotLog.metadata || '{}'); } catch {}
+    const snapshotFile = path.join(snapshotsDir, meta.filename || '');
+    if (!fs.existsSync(snapshotFile)) {
+      return res.status(404).json({ error: 'ไม่พบไฟล์ snapshot บนเซิร์ฟเวอร์' });
+    }
+    // Before rollback: take automatic pre-rollback snapshot
+    const preTs = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const preSnapshotId = `snap_prerollback_${preTs}`;
+    const preFilename = `${preSnapshotId}.sqlite`;
+    const preDest = path.join(snapshotsDir, preFilename);
+    try {
+      await (db as any).backup(preDest);
+      const preStats = fs.statSync(preDest);
+      logBackupAction('snapshot', 'CREATE_SNAPSHOT', `Auto snapshot ก่อน rollback`, {
+        snapshotId: preSnapshotId,
+        filename: preFilename,
+        label: `[Auto] ก่อน rollback ไปยัง ${meta.label}`,
+        description: 'สร้างอัตโนมัติก่อนทำ rollback',
+        size_bytes: preStats.size,
+        record_counts: getTableRecordCounts(),
+        created_at: new Date().toISOString()
+      });
+    } catch (e) { console.error('Pre-rollback snapshot failed:', e); }
+    // Restore: read snapshot data and write into current DB
+    const Database = require('better-sqlite3');
+    const snapDb = new Database(snapshotFile, { readonly: true });
+    const tables = ['sessions', 'attendances', 'students', 'majors', 'academic_years', 'attendance_remarks'];
+    const rollbackTx = db.transaction(() => {
+      for (const table of tables) {
+        try {
+          db.prepare(`DELETE FROM ${table}`).run();
+          const rows = snapDb.prepare(`SELECT * FROM ${table}`).all() as any[];
+          if (rows.length === 0) continue;
+          const cols = Object.keys(rows[0]);
+          const placeholders = cols.map(() => '?').join(',');
+          const ins = db.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`);
+          for (const row of rows) ins.run(cols.map((c: string) => row[c]));
+        } catch (e) { console.error(`Rollback table ${table} error:`, e); }
+      }
+    });
+    rollbackTx();
+    snapDb.close();
+    const restoredCounts = getTableRecordCounts();
+    logBackupAction('rollback', 'ROLLBACK_DATA', `คืนข้อมูลจาก snapshot: ${meta.label}`, {
+      from_snapshot_id: meta.snapshotId,
+      from_snapshot_label: meta.label,
+      from_snapshot_created_at: snapshotLog.created_at,
+      restored_counts: restoredCounts
+    });
+    res.json({ success: true, restored_counts: restoredCounts, from_snapshot: meta.label });
+  } catch (error: any) {
+    console.error('Rollback error:', error);
+    logBackupAction('rollback', 'ROLLBACK_DATA', 'Rollback ล้มเหลว', { error: String(error) }, 'error');
+    res.status(500).json({ error: 'Rollback failed: ' + error.message });
+  }
+});
+
+// DELETE /api/backup/snapshots/:snapshotId — Delete snapshot
+app.delete('/api/backup/snapshots/:snapshotId', (req, res) => {
+  try {
+    const { snapshotId } = req.params;
+    const snapshotLog = db.prepare(
+      `SELECT * FROM backup_logs WHERE id = ? AND log_type = 'snapshot'`
+    ).get(snapshotId) as any;
+    if (!snapshotLog) {
+      return res.status(404).json({ error: 'ไม่พบ snapshot' });
+    }
+    let meta: any = {};
+    try { meta = JSON.parse(snapshotLog.metadata || '{}'); } catch {}
+    if (meta.filename) {
+      const filePath = path.join(snapshotsDir, meta.filename);
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    }
+    db.prepare('DELETE FROM backup_logs WHERE id = ?').run(snapshotId);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete snapshot error:', error);
+    res.status(500).json({ error: 'Delete snapshot failed' });
+  }
+});
+
+// GET /api/backup/logs — Get all backup logs
+app.get('/api/backup/logs', (req, res) => {
+  try {
+    const log_type = req.query.log_type as string | undefined;
+    const limit = parseInt(req.query.limit as string || '100', 10);
+    let query = 'SELECT * FROM backup_logs';
+    const params: any[] = [];
+    if (log_type) {
+      query += ' WHERE log_type = ?';
+      params.push(log_type);
+    }
+    query += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(limit);
+    const logs = db.prepare(query).all(...params) as any[];
+    const parsed = logs.map(l => ({ ...l, metadata: (() => { try { return JSON.parse(l.metadata || '{}'); } catch { return {}; } })() }));
+    res.json(parsed);
+  } catch (error) {
+    console.error('Logs error:', error);
+    res.status(500).json({ error: 'Failed to fetch logs' });
+  }
+});
+
+// GET /api/backup/download/:snapshotId — Download snapshot file
+app.get('/api/backup/download/:snapshotId', (req, res) => {
+  try {
+    const { snapshotId } = req.params;
+    const snapshotLog = db.prepare(
+      `SELECT * FROM backup_logs WHERE id = ? AND log_type = 'snapshot'`
+    ).get(snapshotId) as any;
+    if (!snapshotLog) return res.status(404).json({ error: 'ไม่พบ snapshot' });
+    let meta: any = {};
+    try { meta = JSON.parse(snapshotLog.metadata || '{}'); } catch {}
+    const filePath = path.join(snapshotsDir, meta.filename || '');
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'ไม่พบไฟล์ snapshot' });
+    res.download(filePath, meta.filename);
+  } catch (error) {
+    console.error('Download snapshot error:', error);
+    res.status(500).json({ error: 'Download failed' });
   }
 });
 

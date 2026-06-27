@@ -137,10 +137,8 @@ function AdminLayout() {
         {/* Top Brand Logo */}
         <div className="flex justify-center">
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-              <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
-            </div>
-            <span className="font-extrabold text-base text-ink tracking-tight">attendance.io</span>
+            <img src="/logo.svg" alt="AAS Logo" className="w-5 h-5 object-contain" />
+            <span className="font-extrabold text-base text-ink tracking-tight">AAS</span>
           </div>
         </div>
 
@@ -196,7 +194,7 @@ function AdminLayout() {
 
         {/* Footer Branding */}
         <div className="text-center text-[11px] text-muted-soft mt-8">
-          © {new Date().getFullYear()} attendance.io • ระบบบริหารจัดการหลังบ้านที่ปลอดภัย
+          © {new Date().getFullYear()} AAS • ระบบบริหารจัดการหลังบ้านที่ปลอดภัย
         </div>
       </div>
     );
@@ -217,10 +215,8 @@ function AdminLayout() {
         {/* Left branding */}
         <div className="flex items-center space-x-3">
           <Link to="/admin" className="flex items-center space-x-2.5">
-            <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-              <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
-            </div>
-            <span className="font-extrabold text-lg text-ink tracking-tight">attendance.io</span>
+            <img src="/logo.svg" alt="AAS Logo" className="w-6 h-6 object-contain" />
+            <span className="font-extrabold text-lg text-ink tracking-tight">AAS</span>
           </Link>
           <span className="bg-surface-soft border border-hairline px-2 py-0.5 rounded text-[10px] font-bold text-muted tracking-wide uppercase">
             Admin
@@ -344,10 +340,8 @@ function AdminLayout() {
               <div className="space-y-8">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-                      <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
-                    </div>
-                    <span className="font-extrabold text-base text-ink tracking-tight">attendance.io</span>
+                    <img src="/logo.svg" alt="AAS Logo" className="w-6 h-6 object-contain" />
+                    <span className="font-extrabold text-base text-ink tracking-tight">AAS</span>
                   </div>
                   <button
                     onClick={() => setIsMenuOpen(false)}

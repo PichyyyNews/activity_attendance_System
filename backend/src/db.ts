@@ -123,6 +123,16 @@ db.exec(`
     UNIQUE(session_id, student_id),
     FOREIGN KEY (session_id) REFERENCES sessions (id)
   );
+
+  CREATE TABLE IF NOT EXISTS backup_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_type TEXT NOT NULL,
+    action TEXT NOT NULL,
+    description TEXT,
+    metadata TEXT,
+    status TEXT DEFAULT 'success',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Safe migrations for settings columns
@@ -275,6 +285,15 @@ try {
 } catch (error: any) {
   if (!error.message.includes('duplicate column name')) {
     console.error('Migration Error (attendances.major_name):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN device_uuid TEXT;');
+  console.log('Database Migration: Added device_uuid column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.device_uuid):', error);
   }
 }
 

@@ -1,7 +1,21 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+
+function getCookie(name: string) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop()?.split(';').shift();
+  return null;
+}
+
+function setCookie(name: string, value: string, days: number) {
+  const d = new Date();
+  d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+  const expires = "expires=" + d.toUTCString();
+  document.cookie = `${name}=${value}; ${expires}; path=/; SameSite=Lax`;
+}
 
 export default function UserScanForm() {
   const { token } = useParams();
@@ -29,7 +43,35 @@ export default function UserScanForm() {
   const [sessionClosedReason, setSessionClosedReason] = useState('');
   const [loadingSession, setLoadingSession] = useState(true);
 
+  // Device check & anti proxy check-in states
+  const [deviceUuid, setDeviceUuid] = useState('');
+  const [alreadyCheckedDetails, setAlreadyCheckedDetails] = useState<{
+    student_id: string;
+    prefix: string;
+    first_name: string;
+    last_name: string;
+    level: string;
+    year: string;
+    major_code: string;
+    major_name: string;
+    room: string;
+    attended_at: string;
+  } | null>(null);
+  const [loadingDeviceCheck, setLoadingDeviceCheck] = useState(true);
+
   useEffect(() => {
+    // Generate or retrieve persistent device UUID
+    let uuid = localStorage.getItem('device_uuid') || getCookie('device_uuid');
+    if (!uuid) {
+      uuid = 'dev_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now().toString(36);
+      localStorage.setItem('device_uuid', uuid);
+      setCookie('device_uuid', uuid, 365);
+    } else {
+      localStorage.setItem('device_uuid', uuid);
+      setCookie('device_uuid', uuid, 365);
+    }
+    setDeviceUuid(uuid);
+
     // Fetch majors from backend
     axios.get('/api/majors')
       .then(res => setMajors(res.data || []))
@@ -38,6 +80,7 @@ export default function UserScanForm() {
     // Fetch session details and accurate server time if token exists
     if (token) {
       setLoadingSession(true);
+      setLoadingDeviceCheck(true);
       Promise.all([
         axios.get(`/api/sessions/by-token/${token}`),
         axios.get('/api/time')
@@ -55,15 +98,26 @@ export default function UserScanForm() {
             setIsSessionClosed(true);
             setSessionClosedReason('หมดเวลาการเช็กชื่อเข้าร่วมกิจกรรมในสัปดาห์นี้แล้ว (ระบบปิดรับอัตโนมัติ)');
           }
+
+          // Check if device already checked in for this session
+          return axios.get(`/api/attendances/session/${session.id}/device/${uuid}`);
+        })
+        .then(deviceCheckRes => {
+          if (deviceCheckRes && deviceCheckRes.data) {
+            setAlreadyCheckedDetails(deviceCheckRes.data);
+          }
           setLoadingSession(false);
+          setLoadingDeviceCheck(false);
         })
         .catch(err => {
-          console.error('Error fetching session details:', err);
+          console.error('Error loading session or device check:', err);
           setError('ไม่พบคลาสกิจกรรมที่ระบุ หรือเกิดข้อผิดพลาดในการโหลดข้อมูล');
           setLoadingSession(false);
+          setLoadingDeviceCheck(false);
         });
     } else {
       setLoadingSession(false);
+      setLoadingDeviceCheck(false);
     }
   }, [token]);
 
@@ -137,7 +191,8 @@ export default function UserScanForm() {
         year: selectedYear,
         major_name: majorName,
         major_code: selectedMajorCode,
-        room: selectedRoom
+        room: selectedRoom,
+        device_uuid: deviceUuid
       });
 
       if (rememberMe) {
@@ -179,10 +234,8 @@ export default function UserScanForm() {
       {/* Top Brand Logo */}
       <div className="flex justify-center">
         <div className="flex items-center space-x-2">
-          <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-            <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
-          </div>
-          <span className="font-extrabold text-base text-ink tracking-tight">attendance.io</span>
+          <img src="/logo.svg" alt="AAS Logo" className="w-5 h-5 object-contain" />
+          <span className="font-extrabold text-base text-ink tracking-tight">AAS</span>
         </div>
       </div>
 
@@ -226,10 +279,52 @@ export default function UserScanForm() {
             </Link>
           </div>
         </div>
-      ) : loadingSession ? (
+      ) : alreadyCheckedDetails ? (
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-4 sm:p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] text-center space-y-4 sm:space-y-6 animate-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 bg-amber-500/15 text-amber-600 rounded-full flex items-center justify-center mx-auto border border-amber-500/30">
+            <ShieldAlert size={32} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-[#b45309] tracking-tight">เครื่องนี้ได้เช็กชื่อกิจกรรมไปแล้ว</h1>
+            <p className="text-muted text-xs leading-relaxed">
+              เครื่องนี้ทำรายการเช็กชื่อกิจกรรมครั้งที่ {sessionInfo?.week_number} สำเร็จแล้ว 
+              <br /><strong>ระบบไม่อนุญาตให้ใช้เช็กชื่อให้บุคคลอื่นหรือลงชื่อแทนกันได้</strong>
+            </p>
+          </div>
+
+          <div className="bg-surface-soft border border-hairline rounded-md p-4 text-left text-sm space-y-2.5">
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">ชื่อ-นามสกุล</span>
+              <span className="font-semibold text-ink">{alreadyCheckedDetails.prefix}{alreadyCheckedDetails.first_name} {alreadyCheckedDetails.last_name}</span>
+            </div>
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">รหัสนักศึกษา</span>
+              <span className="font-mono font-semibold text-ink">{alreadyCheckedDetails.student_id}</span>
+            </div>
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">กลุ่มเรียน</span>
+              <span className="font-semibold text-ink">{alreadyCheckedDetails.year}{alreadyCheckedDetails.major_code}{alreadyCheckedDetails.room}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">ระดับชั้น / สาขาวิชา</span>
+              <span className="font-semibold text-ink text-right text-xs">{alreadyCheckedDetails.level} • {alreadyCheckedDetails.major_name}</span>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Link 
+              to={`/?id=${alreadyCheckedDetails.student_id}`}
+              className="w-full h-11 bg-primary hover:bg-primary-active text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all"
+            >
+              <span>ตรวจสอบสถิติการเช็กชื่อของฉัน</span>
+              <ArrowRight size={15} />
+            </Link>
+          </div>
+        </div>
+      ) : loadingSession || loadingDeviceCheck ? (
         <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-12 text-center space-y-4 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
           <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="text-sm text-muted font-semibold">กำลังโหลดข้อมูลคาบกิจกรรม...</p>
+          <p className="text-sm text-muted font-semibold">กำลังตรวจสอบข้อมูลประวัติเครื่องและคาบกิจกรรม...</p>
         </div>
       ) : (
         /* Form View */
@@ -452,7 +547,7 @@ export default function UserScanForm() {
 
       {/* Footer Branding */}
       <div className="text-center text-[11px] text-muted-soft mt-4 sm:mt-8">
-        © {new Date().getFullYear()} attendance.io ขับเคลื่อนระบบด้วยฐานข้อมูล SQLite และ Google Sheets API
+        © {new Date().getFullYear()} AAS ขับเคลื่อนระบบด้วยฐานข้อมูล SQLite และ Google Sheets API
       </div>
     </div>
   );

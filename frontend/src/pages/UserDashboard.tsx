@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Search, Calendar, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
@@ -101,10 +101,8 @@ export default function UserDashboard() {
       <header className="sticky top-0 bg-canvas/80 backdrop-blur-md border-b border-hairline w-full z-40">
         <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
-            <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
-              <div className="w-2.5 h-2.5 bg-canvas rounded-full"></div>
-            </div>
-            <span className="font-extrabold text-base text-ink tracking-tight">attendance.io</span>
+            <img src="/logo.svg" alt="AAS Logo" className="w-6 h-6 object-contain" />
+            <span className="font-extrabold text-base text-ink tracking-tight">AAS</span>
           </div>
         </div>
       </header>
@@ -265,7 +263,7 @@ export default function UserDashboard() {
       {/* Footer */}
       <footer className="bg-surface-dark text-on-dark-soft border-t border-surface-dark-elevated">
         <div className="max-w-4xl mx-auto px-6 py-6 flex flex-col sm:flex-row justify-between items-center text-xs space-y-4 sm:space-y-0">
-          <p>© {new Date().getFullYear()} attendance.io สงวนลิขสิทธิ์ทั้งหมด</p>
+          <p>© {new Date().getFullYear()} AAS สงวนลิขสิทธิ์ทั้งหมด</p>
           <div className="flex space-x-6 text-[#a1a1aa]">
             <a href="#" className="hover:text-white transition-colors">ติดต่อรับความช่วยเหลือ</a>
           </div>
