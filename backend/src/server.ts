@@ -1230,8 +1230,8 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
     const totalExpected = totalPresent + totalAbsent;
     const attendanceRate = totalExpected > 0 ? Math.round((totalPresent / totalExpected) * 100) : 0;
 
-    // 5. Weekly trend statistics (last 6 sessions) - uses full filters
-    const trendSessions = allSessions.slice(-6);
+    // 5. Weekly trend statistics (all sessions) - frontend controls display limit via slider
+    const trendSessions = allSessions;
     const weeklyTrend = trendSessions.map(s => {
       const presCount = db.prepare(`SELECT COUNT(*) as count FROM attendances WHERE session_id = ? ${filterSql}`).get(s.id, ...filterParams) as { count: number };
       const absCount = db.prepare(`
