@@ -68,7 +68,7 @@ app.use((req, res, next) => {
     (path.startsWith('/api/attendances/session/') && !path.includes('/device/')) ||
     (path.startsWith('/api/attendances/') && (method === 'PUT' || method === 'DELETE')) ||
     path === '/api/attendances/recent' ||
-    (path.startsWith('/api/sessions') && !path.startsWith('/api/sessions/by-token/')) ||
+    (path.startsWith('/api/sessions') && method !== 'GET') ||
     (path === '/api/students' || (path.startsWith('/api/students/') && method !== 'GET')) ||
     (path.startsWith('/api/majors') && method !== 'GET');
 
