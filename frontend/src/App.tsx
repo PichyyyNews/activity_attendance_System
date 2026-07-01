@@ -16,6 +16,8 @@ import AdminStudents from './pages/admin/Students';
 import AdminSystemLogs from './pages/admin/SystemLogs';
 import UserScanForm from './pages/UserScanForm';
 import UserDashboard from './pages/UserDashboard';
+import NotFound from './pages/NotFound';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function Footer() {
   return (
@@ -559,24 +561,29 @@ function AdminLayout() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<UserDashboard />} />
-        <Route path="/scan/:token" element={<UserScanForm />} />
-        <Route path="/scan" element={<UserScanForm />} />
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<UserDashboard />} />
+          <Route path="/scan/:token" element={<UserScanForm />} />
+          <Route path="/scan" element={<UserScanForm />} />
 
-        {/* Admin Routes */}
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminDashboard />} />
-          <Route path="sessions" element={<AdminSessions />} />
-          <Route path="students" element={<AdminStudents />} />
-          <Route path="attendance" element={<AdminAttendanceList />} />
-          <Route path="systemlog" element={<AdminSystemLogs />} />
-          <Route path="settings" element={<AdminSettings />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+          {/* Admin Routes */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="sessions" element={<AdminSessions />} />
+            <Route path="students" element={<AdminStudents />} />
+            <Route path="attendance" element={<AdminAttendanceList />} />
+            <Route path="systemlog" element={<AdminSystemLogs />} />
+            <Route path="settings" element={<AdminSettings />} />
+          </Route>
+
+          {/* Wildcard 404 Route */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 
