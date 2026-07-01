@@ -89,6 +89,51 @@ interface DashboardStats {
   };
 }
 
+function getAggregatedScanDistribution(rawDist: ScanTimeData[] | undefined, volume: number): ScanTimeData[] {
+  if (!rawDist || rawDist.length === 0) return [];
+  
+  const aggMap: { [key: string]: { startHour: number; startMin: number; count: number } } = {};
+  
+  rawDist.forEach(item => {
+    const cleanTime = item.time.replace(' น.', '').trim();
+    const [hStr, mStr] = cleanTime.split(':');
+    const hour = parseInt(hStr, 10);
+    const minute = parseInt(mStr, 10);
+    
+    if (isNaN(hour) || isNaN(minute)) return;
+    
+    const startMin = Math.floor(minute / volume) * volume;
+    const startHour = hour;
+    
+    const key = `${startHour.toString().padStart(2, '0')}:${startMin.toString().padStart(2, '0')}`;
+    
+    if (!aggMap[key]) {
+      aggMap[key] = { startHour, startMin, count: 0 };
+    }
+    aggMap[key].count += item.count;
+  });
+  
+  return Object.keys(aggMap)
+    .sort()
+    .map(key => {
+      const { startHour, startMin, count } = aggMap[key];
+      
+      let endHour = startHour;
+      let endMin = startMin + volume - 1;
+      if (endMin >= 60) {
+        endMin = 59;
+      }
+      
+      const startStr = `${startHour.toString().padStart(2, '0')}:${startMin.toString().padStart(2, '0')}`;
+      const endStr = `${endHour.toString().padStart(2, '0')}:${endMin.toString().padStart(2, '0')}`;
+      
+      return {
+        time: `${startStr} - ${endStr} น.`,
+        count
+      };
+    });
+}
+
 export default function AdminDashboard() {
   // Filter States
   const [selectedSessionId, setSelectedSessionId] = useState<number | 'all' | ''>('');
@@ -156,6 +201,7 @@ export default function AdminDashboard() {
 
   // Expanded chart state (null = all normal, 1-4 = that chart expands to full width in its row)
   const [expandedChart, setExpandedChart] = useState<number | null>(null);
+  const [scanVolume, setScanVolume] = useState<number>(5);
 
   // Dynamic viewBox widths: expanded chart gets 2x width so it "opens up" plot area instead of zooming
   const cw1 = expandedChart === 1 ? 1000 : 500;
@@ -937,10 +983,10 @@ export default function AdminDashboard() {
         <div className="space-y-8">
           
           {/* Row 1: Line Chart & Donut Chart */}
-          <div className={`grid gap-6 ${expandedChart === 1 || expandedChart === 2 ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-2'}`}>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             
             {/* Chart 1: Curved Line Chart (Weekly Trend) */}
-            <div className={`${expandedChart === 1 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+            <div className={`${expandedChart === 1 ? 'xl:col-span-2' : expandedChart === 2 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2 sm:gap-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2 shrink-0">
                   <TrendingUp size={16} className="text-primary" />
@@ -1151,7 +1197,7 @@ export default function AdminDashboard() {
             </div>
 
             {/* Chart 2: Single Donut Chart with Folder Tabs */}
-            <div className={`${expandedChart === 2 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md`}>
+            <div className={`${expandedChart === 2 ? 'xl:col-span-2' : expandedChart === 1 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md`}>
               {/* Folder Tabs (Tab แบบแฟ้ม) */}
               <div className="flex border-b border-hairline bg-surface-soft/40 px-2 pt-2 gap-1 overflow-x-auto scrollbar-none items-center">
                 <div className="flex gap-1 min-w-0 flex-1">
@@ -1395,10 +1441,10 @@ export default function AdminDashboard() {
           </div>
 
           {/* Row 2: Room Bar Chart & Hourly Scan Time Chart */}
-          <div className={`grid gap-6 ${expandedChart === 3 || expandedChart === 4 ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-2'}`}>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             
             {/* Chart 3: Room-wise Attendance Vertical Bar Chart */}
-            <div className={`${expandedChart === 3 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+            <div className={`${expandedChart === 3 ? 'xl:col-span-2' : expandedChart === 4 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
               <div className="flex items-center justify-between border-b border-hairline pb-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
                   <Building size={16} className="text-primary" />
@@ -1546,130 +1592,156 @@ export default function AdminDashboard() {
             </div>
 
             {/* Chart 4: Hourly Scan Peak Distribution Bar Chart */}
-            <div className={`${expandedChart === 4 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
-              <div className="flex items-center justify-between border-b border-hairline pb-3">
-                <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
+            <div className={`${expandedChart === 4 ? 'xl:col-span-2' : expandedChart === 3 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2">
+                <h3 className="text-sm font-bold text-ink flex items-center space-x-2 shrink-0">
                   <Clock size={16} className="text-primary" />
-                  <span>ช่วงเวลาที่มีการเช็กชื่อสแกนมากที่สุด (ทุกๆ 1 นาที)</span>
+                  <span>ช่วงเวลาที่มีการเช็กชื่อสแกนมากที่สุด (ทุกๆ {scanVolume} นาที)</span>
                 </h3>
-                {/* Expand/collapse button */}
-                <button
-                  onClick={() => setExpandedChart(expandedChart === 4 ? null : 4)}
-                  title={expandedChart === 4 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
-                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
-                >
-                  {expandedChart === 4 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                </button>
+                <div className="flex items-center gap-2 min-w-0 sm:justify-end">
+                  {/* Volume Selector Buttons */}
+                  <div className="flex items-center gap-1 bg-surface-soft p-0.5 rounded-lg border border-hairline shrink-0">
+                    {[3, 5, 15, 30, 60].map(v => (
+                      <button
+                        key={v}
+                        onClick={() => {
+                          setScanVolume(v);
+                          setHoveredScanIndex(null);
+                        }}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                          scanVolume === v 
+                            ? 'bg-canvas text-primary shadow-sm border border-hairline/50 font-black' 
+                            : 'text-muted hover:text-ink'
+                        }`}
+                      >
+                        {v}ม.
+                      </button>
+                    ))}
+                  </div>
+                  {/* Expand/collapse button */}
+                  <button
+                    onClick={() => setExpandedChart(expandedChart === 4 ? null : 4)}
+                    title={expandedChart === 4 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                  >
+                    {expandedChart === 4 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  </button>
+                </div>
               </div>
 
-              {!stats.scanDistribution || stats.scanDistribution.length === 0 ? (
-                <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ยังไม่มีสถิติช่วงเวลาสแกนในคาบนี้</div>
-              ) : (
-                <div className="relative pt-4">
-                  <svg viewBox={`0 0 ${cw4} 180`} className="w-full overflow-visible">
-                    {/* Y Grid lines */}
-                    <line x1="40" y1="20" x2={cw4 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="60" x2={cw4 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="100" x2={cw4 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="140" x2={cw4 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
+              {(() => {
+                const aggregatedDistribution = getAggregatedScanDistribution(stats.scanDistribution, scanVolume);
+                
+                if (aggregatedDistribution.length === 0) {
+                  return <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ยังไม่มีสถิติช่วงเวลาสแกนในคาบนี้</div>;
+                }
+                
+                return (
+                  <div className="relative pt-4">
+                    <svg viewBox={`0 0 ${cw4} 180`} className="w-full overflow-visible">
+                      {/* Y Grid lines */}
+                      <line x1="40" y1="20" x2={cw4 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                      <line x1="40" y1="60" x2={cw4 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                      <line x1="40" y1="100" x2={cw4 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                      <line x1="40" y1="140" x2={cw4 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
 
-                    {(() => {
-                      const distribution = stats.scanDistribution || [];
-                      const maxCount = Math.max(...distribution.map(d => d.count), 1);
-                      
-                      // Dynamic Y labels based on maxCount
-                      const label4 = maxCount;
-                      const label3 = Math.round(maxCount * 0.75);
-                      const label2 = Math.round(maxCount * 0.5);
-                      const label1 = Math.round(maxCount * 0.25);
-
-                      return (
-                        <>
-                          <text x="32" y="24" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label4}</text>
-                          <text x="32" y="64" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label3}</text>
-                          <text x="32" y="104" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label2}</text>
-                          <text x="32" y="144" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label1}</text>
-                        </>
-                      );
-                    })()}
-
-                    {(() => {
-                      const distribution = stats.scanDistribution || [];
-                      const len = distribution.length;
-                      const step = 420 / len;
-                      const barWidth = Math.min(step * 0.5, 24);
-                      const maxCount = Math.max(...distribution.map(d => d.count), 1);
-
-                      return distribution.map((item, idx) => {
-                        const centerX = 40 + idx * step + step / 2;
-                        const barHeight = (item.count / maxCount) * 120;
-                        const barY = 140 - barHeight;
+                      {(() => {
+                        const maxCount = Math.max(...aggregatedDistribution.map(d => d.count), 1);
+                        
+                        // Dynamic Y labels based on maxCount
+                        const label4 = maxCount;
+                        const label3 = Math.round(maxCount * 0.75);
+                        const label2 = Math.round(maxCount * 0.5);
+                        const label1 = Math.round(maxCount * 0.25);
 
                         return (
-                          <g 
-                            key={idx} 
-                            className="cursor-pointer"
-                            onMouseEnter={() => setHoveredScanIndex(idx)}
-                            onMouseLeave={() => setHoveredScanIndex(null)}
-                          >
-                            <rect
-                              x={centerX - step / 2}
-                              y="10"
-                              width={step}
-                              height="130"
-                              className="fill-primary/0 hover:fill-primary/[0.02] transition-colors"
-                            />
-                            
-                            <rect
-                              x={centerX - barWidth / 2}
-                              y={barY}
-                              width={barWidth}
-                              height={Math.max(barHeight, 2)}
-                              rx="2"
-                              className="stroke-primary fill-primary/30 transition-all duration-300"
-                              strokeWidth="1.5"
-                            />
-
-                            {/* Counter above bar */}
-                            <text
-                              x={centerX}
-                              y={barY - 6}
-                              className={`text-[9px] font-extrabold text-center transition-all ${
-                                hoveredScanIndex === idx ? 'fill-primary font-black scale-110' : 'fill-muted-soft'
-                              }`}
-                              textAnchor="middle"
-                            >
-                              {item.count}
-                            </text>
-
-                            {/* X Axis timestamp */}
-                            <text
-                              x={centerX}
-                              y="160"
-                              className={`text-[9px] font-bold transition-all ${
-                                hoveredScanIndex === idx ? 'fill-primary font-black' : 'fill-muted'
-                              }`}
-                              textAnchor="middle"
-                            >
-                              {item.time.replace(' น.', '')}
-                            </text>
-                          </g>
+                          <>
+                            <text x="32" y="24" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label4}</text>
+                            <text x="32" y="64" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label3}</text>
+                            <text x="32" y="104" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label2}</text>
+                            <text x="32" y="144" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label1}</text>
+                          </>
                         );
-                      });
-                    })()}
-                  </svg>
+                      })()}
 
-                  {hoveredScanIndex !== null && stats.scanDistribution && stats.scanDistribution[hoveredScanIndex] && (
-                    <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1 animate-in fade-in duration-150 z-10 min-w-[140px]">
-                      <div className="font-bold text-ink">สถิติช่วงเวลาสแกน</div>
-                      <div className="text-muted">ช่วงเวลา: {stats.scanDistribution[hoveredScanIndex].time}</div>
-                      <div className="font-bold text-primary border-t border-hairline pt-1 mt-1">
-                        เช็กชื่อเข้าเรียน: {stats.scanDistribution[hoveredScanIndex].count} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}
+                      {(() => {
+                        const len = aggregatedDistribution.length;
+                        const plotW = cw4 - 60;
+                        const step = plotW / len;
+                        const barWidth = Math.min(step * 0.5, 24);
+                        const maxCount = Math.max(...aggregatedDistribution.map(d => d.count), 1);
+
+                        return aggregatedDistribution.map((item, idx) => {
+                          const centerX = 40 + idx * step + step / 2;
+                          const barHeight = (item.count / maxCount) * 120;
+                          const barY = 140 - barHeight;
+
+                          return (
+                            <g 
+                              key={idx} 
+                              className="cursor-pointer"
+                              onMouseEnter={() => setHoveredScanIndex(idx)}
+                              onMouseLeave={() => setHoveredScanIndex(null)}
+                            >
+                              <rect
+                                x={centerX - step / 2}
+                                y="10"
+                                width={step}
+                                height="130"
+                                className="fill-primary/0 hover:fill-primary/[0.02] transition-colors"
+                              />
+                              
+                              <rect
+                                x={centerX - barWidth / 2}
+                                y={barY}
+                                width={barWidth}
+                                height={Math.max(barHeight, 2)}
+                                rx="2"
+                                className="stroke-primary fill-primary/30 transition-all duration-300"
+                                strokeWidth="1.5"
+                              />
+
+                              {/* Counter above bar */}
+                              <text
+                                x={centerX}
+                                y={barY - 6}
+                                className={`text-[9px] font-extrabold text-center transition-all ${
+                                  hoveredScanIndex === idx ? 'fill-primary font-black scale-110' : 'fill-muted-soft'
+                                }`}
+                                textAnchor="middle"
+                              >
+                                {item.count}
+                              </text>
+
+                              {/* X Axis timestamp */}
+                              <text
+                                x={centerX}
+                                y="160"
+                                className={`text-[9px] font-bold transition-all ${
+                                  hoveredScanIndex === idx ? 'fill-primary font-black' : 'fill-muted'
+                                }`}
+                                textAnchor="middle"
+                              >
+                                {item.time.replace(' น.', '')}
+                              </text>
+                            </g>
+                          );
+                        });
+                      })()}
+                    </svg>
+
+                    {hoveredScanIndex !== null && aggregatedDistribution[hoveredScanIndex] && (
+                      <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1 animate-in fade-in duration-150 z-10 min-w-[140px]">
+                        <div className="font-bold text-ink">สถิติช่วงเวลาสแกน</div>
+                        <div className="text-muted">ช่วงเวลา: {aggregatedDistribution[hoveredScanIndex].time}</div>
+                        <div className="font-bold text-primary border-t border-hairline pt-1 mt-1">
+                          เช็กชื่อเข้าเรียน: {aggregatedDistribution[hoveredScanIndex].count} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
           </div>

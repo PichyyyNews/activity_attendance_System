@@ -9,6 +9,8 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const db = new Database(path.join(dataDir, 'database.sqlite'));
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
 
 // Drop old majors table if it contains old schema (missing level column)
 try {
@@ -140,6 +142,10 @@ db.exec(`
     status TEXT DEFAULT 'success',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE INDEX IF NOT EXISTS idx_students_student_id ON students (student_id);
+  CREATE INDEX IF NOT EXISTS idx_attendances_session_student ON attendances (session_id, student_id);
+  CREATE INDEX IF NOT EXISTS idx_attendances_student_id ON attendances (student_id);
 `);
 
 // Safe migrations for settings columns
@@ -210,7 +216,7 @@ try {
 
 // Back-fill token for existing sessions that have no token
 try {
-  const sessionsWithoutToken = db.prepare('SELECT id FROM sessions WHERE token IS NULL OR token = ""').all() as { id: number }[];
+  const sessionsWithoutToken = db.prepare("SELECT id FROM sessions WHERE token IS NULL OR token = ''").all() as { id: number }[];
   if (sessionsWithoutToken.length > 0) {
     const updateToken = db.prepare('UPDATE sessions SET token = ? WHERE id = ?');
     for (const s of sessionsWithoutToken) {
@@ -396,7 +402,7 @@ if (fs.existsSync(defaultCredPath)) {
     const existing = db.prepare('SELECT * FROM settings WHERE id = 1').get() as { sheet_id: string, credentials_json: string } | undefined;
     
     if (!existing) {
-      db.prepare('INSERT INTO settings (id, sheet_id, credentials_json, academic_year, term) VALUES (1, ?, ?, "2569", "1")')
+      db.prepare("INSERT INTO settings (id, sheet_id, credentials_json, academic_year, term) VALUES (1, ?, ?, '2569', '1')")
         .run(defaultSheetId, defaultCred);
       console.log('Successfully pre-populated settings with default Google Sheets key and sheet ID.');
     } else if (!existing.credentials_json || !existing.sheet_id) {

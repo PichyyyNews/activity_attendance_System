@@ -129,6 +129,29 @@ async function getThaiTimeISO(): Promise<string> {
   return getBangkokISOString(new Date());
 }
 
+let cachedSheetsClient: any = null;
+let cachedCredentialsJson = '';
+
+function getSheetsClient(credentialsJson: string): any {
+  if (cachedSheetsClient && cachedCredentialsJson === credentialsJson) {
+    return cachedSheetsClient;
+  }
+  try {
+    const credentials = JSON.parse(credentialsJson);
+    if (credentials.private_key) {
+      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+    }
+    const auth = google.auth.fromJSON(credentials) as any;
+    auth.scopes = ['https://www.googleapis.com/auth/spreadsheets'];
+    cachedSheetsClient = google.sheets({ version: 'v4', auth: auth as any });
+    cachedCredentialsJson = credentialsJson;
+    return cachedSheetsClient;
+  } catch (err) {
+    console.error('Failed to initialize Google Sheets client:', err);
+    throw err;
+  }
+}
+
 // Helper function to sync attendance row to Google Sheets
 async function syncToGoogleSheets(
   session: { week_number: number; title: string; academic_year?: string; term?: string }, 
@@ -147,14 +170,7 @@ async function syncToGoogleSheets(
     const sheetIdMatch = rawSheetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
     const sheetId = sheetIdMatch ? sheetIdMatch[1] : rawSheetId.trim();
 
-    const credentials = JSON.parse(settings.credentials_json);
-    if (credentials.private_key) {
-      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
-    }
-    const auth = google.auth.fromJSON(credentials) as any;
-    auth.scopes = ['https://www.googleapis.com/auth/spreadsheets'];
-
-    const sheets = google.sheets({ version: 'v4', auth: auth as any });
+    const sheets = getSheetsClient(settings.credentials_json);
     
     // Check if sheet already has header row (row 1)
     let hasHeaders = false;
@@ -225,7 +241,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Settings CRUD
-app.get('api/settings', (req, res) => {
+app.get('/api/settings', (req, res) => {
   try {
     const stmt = db.prepare('SELECT * FROM settings WHERE id = 1');
     const settings = stmt.get() as any;
@@ -414,14 +430,7 @@ app.post('/api/settings/sync-all', async (req, res) => {
     const sheetIdMatch = rawSheetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
     const sheetId = sheetIdMatch ? sheetIdMatch[1] : rawSheetId.trim();
 
-    const credentials = JSON.parse(settings.credentials_json);
-    if (credentials.private_key) {
-      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
-    }
-    const auth = google.auth.fromJSON(credentials) as any;
-    auth.scopes = ['https://www.googleapis.com/auth/spreadsheets'];
-
-    const sheets = google.sheets({ version: 'v4', auth: auth as any });
+    const sheets = getSheetsClient(settings.credentials_json);
 
     // Fetch all attendance records joined with session info
     const attendances = db.prepare(`

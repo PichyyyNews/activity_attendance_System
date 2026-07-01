@@ -1,8 +1,6 @@
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: attendance-backend:latest
     container_name: attendance-backend
     restart: always
     environment:
@@ -16,9 +14,7 @@ services:
       - "${BACKEND_PORT}"
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: attendance-frontend:latest
     container_name: attendance-frontend
     restart: always
     environment:

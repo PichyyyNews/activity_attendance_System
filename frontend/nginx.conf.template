@@ -2,6 +2,13 @@ server {
     listen 80;
     server_name ${DOMAIN};
 
+    # Gzip Compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
     location /assets/ {
         root /usr/share/nginx/html;
         add_header Cache-Control "public, max-age=31536000, immutable";
