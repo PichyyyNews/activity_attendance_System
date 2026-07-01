@@ -15,7 +15,9 @@ import {
   PieChart,
   Users,
   GraduationCap,
-  LayoutDashboard
+  LayoutDashboard,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 interface Session {
@@ -151,6 +153,14 @@ export default function AdminDashboard() {
 
   // Tab states for ratio display
   const [ratioTab, setRatioTab] = useState<'summary' | 'year' | 'major' | 'room' | 'gender'>('summary');
+
+  // Expanded chart state (null = all normal, 1-4 = that chart expands to full width in its row)
+  const [expandedChart, setExpandedChart] = useState<number | null>(null);
+
+  // Dynamic viewBox widths: expanded chart gets 2x width so it "opens up" plot area instead of zooming
+  const cw1 = expandedChart === 1 ? 1000 : 500;
+  const cw3 = expandedChart === 3 ? 1000 : 500;
+  const cw4 = expandedChart === 4 ? 1000 : 500;
 
   const getGender = (prefix: string) => {
     const p = prefix || '';
@@ -400,7 +410,8 @@ export default function AdminDashboard() {
             year: student.year || student.class_year || '1',
             major_name: student.major_name || 'ไม่ระบุสาขา',
             major_code: student.major_code,
-            room: student.room
+            room: student.room,
+            bypass_gps: true
           });
           
           setMessage(`ลงชื่อเข้าเรียนให้ ${student.first_name} เรียบร้อยแล้ว!`);
@@ -624,7 +635,7 @@ export default function AdminDashboard() {
           )}
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
           {/* Week Selector */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-ink">ครั้งที่กิจกรรม</label>
@@ -741,7 +752,7 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 items-stretch">
           {/* Radial Attendance Circle Card */}
           <div className="bg-canvas border border-hairline rounded-lg p-5 flex items-center justify-between shadow-sm transition-all hover:shadow-md">
             <div className="space-y-1">
@@ -926,17 +937,17 @@ export default function AdminDashboard() {
         <div className="space-y-8">
           
           {/* Row 1: Line Chart & Donut Chart */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className={`grid gap-6 ${expandedChart === 1 || expandedChart === 2 ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-2'}`}>
             
             {/* Chart 1: Curved Line Chart (Weekly Trend) */}
-            <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md">
-              <div className="flex items-center justify-between border-b border-hairline pb-3 gap-3">
+            <div className={`${expandedChart === 1 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2 sm:gap-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2 shrink-0">
                   <TrendingUp size={16} className="text-primary" />
                   <span>แนวโน้มการเช็กชื่อเข้ากิจกรรม</span>
                 </h3>
-                {/* Trend limit slider — top-right of card */}
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 sm:justify-end">
+                  {/* Trend limit slider */}
                   <span className="text-[10px] text-muted whitespace-nowrap">ย้อนหลัง</span>
                   <input
                     id="trend-limit-slider"
@@ -948,7 +959,7 @@ export default function AdminDashboard() {
                       setTrendLimit(Number(e.target.value));
                       setHoveredTrendIndex(null);
                     }}
-                    className="w-24 accent-primary cursor-pointer"
+                    className="flex-1 sm:flex-initial w-full sm:w-24 accent-primary cursor-pointer"
                     style={{ height: '4px' }}
                   />
                   <span className="text-[11px] font-bold text-primary whitespace-nowrap font-mono">
@@ -956,6 +967,14 @@ export default function AdminDashboard() {
                       ? `ทั้งหมด (${stats?.weeklyTrend.length ?? 0})`
                       : `${trendLimit} คาบ`}
                   </span>
+                  {/* Expand/collapse button */}
+                  <button
+                    onClick={() => setExpandedChart(expandedChart === 1 ? null : 1)}
+                    title={expandedChart === 1 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                  >
+                    {expandedChart === 1 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  </button>
                 </div>
               </div>
               
@@ -963,12 +982,12 @@ export default function AdminDashboard() {
                 <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ยังไม่มีสถิติสำหรับสร้างกราฟแสดงแนวโน้ม</div>
               ) : (
                 <div className="relative pt-4">
-                  <svg viewBox="0 0 500 180" className="w-full overflow-visible">
+                  <svg viewBox={`0 0 ${cw1} 180`} className="w-full overflow-visible">
                     {/* Y Grid lines */}
-                    <line x1="40" y1="20" x2="480" y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="60" x2="480" y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="100" x2="480" y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="140" x2="480" y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
+                    <line x1="40" y1="20" x2={cw1 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="60" x2={cw1 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="100" x2={cw1 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="140" x2={cw1 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
                     
                     {/* Y Axis Labels */}
                     <text x="32" y="24" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">100%</text>
@@ -980,8 +999,9 @@ export default function AdminDashboard() {
                     {(() => {
                       const sliced = stats.weeklyTrend.slice(-Math.min(trendLimit, stats.weeklyTrend.length));
                       const len = sliced.length;
+                      const plotW = cw1 - 60;
                       const points = sliced.map((t, idx) => {
-                        const step = len > 1 ? 440 / (len - 1) : 440;
+                        const step = len > 1 ? plotW / (len - 1) : plotW;
                         const x = 40 + idx * step;
                         const y = 140 - (Math.min(t.rate, 100) / 100) * 120;
                         const diff = idx > 0 ? t.rate - sliced[idx - 1].rate : 0;
@@ -1131,9 +1151,10 @@ export default function AdminDashboard() {
             </div>
 
             {/* Chart 2: Single Donut Chart with Folder Tabs */}
-            <div className="bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md">
+            <div className={`${expandedChart === 2 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md`}>
               {/* Folder Tabs (Tab แบบแฟ้ม) */}
-              <div className="flex border-b border-hairline bg-surface-soft/40 px-2 pt-2 gap-1 overflow-x-auto scrollbar-none">
+              <div className="flex border-b border-hairline bg-surface-soft/40 px-2 pt-2 gap-1 overflow-x-auto scrollbar-none items-center">
+                <div className="flex gap-1 min-w-0 flex-1">
                 <button
                   onClick={() => { setRatioTab('summary'); setHoveredPath(null); setHoveredSeg(null); }}
                   className={`px-2.5 py-2 text-[11px] font-bold rounded-t-lg border-t border-x transition-all flex items-center space-x-1 cursor-pointer -mb-px whitespace-nowrap ${
@@ -1188,6 +1209,15 @@ export default function AdminDashboard() {
                 >
                   <Users size={13} />
                   <span>5. เพศ</span>
+                </button>
+                </div>
+                {/* Expand/collapse button */}
+                <button
+                  onClick={() => setExpandedChart(expandedChart === 2 ? null : 2)}
+                  title={expandedChart === 2 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                  className="shrink-0 mr-2 mb-0.5 w-7 h-7 flex items-center justify-center rounded-md border border-hairline bg-canvas hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                >
+                  {expandedChart === 2 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                 </button>
               </div>
 
@@ -1365,15 +1395,23 @@ export default function AdminDashboard() {
           </div>
 
           {/* Row 2: Room Bar Chart & Hourly Scan Time Chart */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className={`grid gap-6 ${expandedChart === 3 || expandedChart === 4 ? 'grid-cols-1' : 'grid-cols-1 xl:grid-cols-2'}`}>
             
             {/* Chart 3: Room-wise Attendance Vertical Bar Chart */}
-            <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md">
+            <div className={`${expandedChart === 3 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
               <div className="flex items-center justify-between border-b border-hairline pb-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
                   <Building size={16} className="text-primary" />
                   <span>อัตราการเข้าเรียนแยกตามกลุ่มสาขาวิชา (%)</span>
                 </h3>
+                {/* Expand/collapse button */}
+                <button
+                  onClick={() => setExpandedChart(expandedChart === 3 ? null : 3)}
+                  title={expandedChart === 3 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                >
+                  {expandedChart === 3 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                </button>
               </div>
 
               {stats.roomStats.length === 0 ? (
@@ -1381,12 +1419,12 @@ export default function AdminDashboard() {
               ) : (
                 <div className="relative pt-4">
                   {/* Vertical bar chart using SVG */}
-                  <svg viewBox="0 0 500 180" className="w-full overflow-visible">
+                  <svg viewBox={`0 0 ${cw3} 180`} className="w-full overflow-visible">
                     {/* Y Grid lines */}
-                    <line x1="40" y1="20" x2="480" y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="60" x2="480" y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="100" x2="480" y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="140" x2="480" y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
+                    <line x1="40" y1="20" x2={cw3 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="60" x2={cw3 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="100" x2={cw3 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="140" x2={cw3 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
 
                     {/* Y Axis Labels */}
                     <text x="32" y="24" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">100%</text>
@@ -1396,7 +1434,8 @@ export default function AdminDashboard() {
 
                     {(() => {
                       const len = stats.roomStats.length;
-                      const step = 440 / len;
+                      const plotW = cw3 - 60;
+                      const step = plotW / len;
                       const barWidth = Math.min(step * 0.45, 24);
 
                       const groupColors = [
@@ -1507,24 +1546,32 @@ export default function AdminDashboard() {
             </div>
 
             {/* Chart 4: Hourly Scan Peak Distribution Bar Chart */}
-            <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md">
+            <div className={`${expandedChart === 4 ? 'xl:col-span-1' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
               <div className="flex items-center justify-between border-b border-hairline pb-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
                   <Clock size={16} className="text-primary" />
                   <span>ช่วงเวลาที่มีการเช็กชื่อสแกนมากที่สุด (ทุกๆ 1 นาที)</span>
                 </h3>
+                {/* Expand/collapse button */}
+                <button
+                  onClick={() => setExpandedChart(expandedChart === 4 ? null : 4)}
+                  title={expandedChart === 4 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                >
+                  {expandedChart === 4 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                </button>
               </div>
 
               {!stats.scanDistribution || stats.scanDistribution.length === 0 ? (
                 <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ยังไม่มีสถิติช่วงเวลาสแกนในคาบนี้</div>
               ) : (
                 <div className="relative pt-4">
-                  <svg viewBox="0 0 500 180" className="w-full overflow-visible">
+                  <svg viewBox={`0 0 ${cw4} 180`} className="w-full overflow-visible">
                     {/* Y Grid lines */}
-                    <line x1="40" y1="20" x2="480" y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="60" x2="480" y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="100" x2="480" y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="140" x2="480" y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
+                    <line x1="40" y1="20" x2={cw4 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="60" x2={cw4 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="100" x2={cw4 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
+                    <line x1="40" y1="140" x2={cw4 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
 
                     {(() => {
                       const distribution = stats.scanDistribution || [];
@@ -1682,8 +1729,8 @@ export default function AdminDashboard() {
           </div>
 
           {/* List Local Filters Bar */}
-          <div className="bg-surface-soft/20 border-b border-hairline px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-4 text-xs">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="bg-surface-soft/20 border-b border-hairline px-4 sm:px-6 py-2.5 flex items-center justify-between gap-4 text-xs overflow-x-auto">
+            <div className="flex items-center gap-3 flex-shrink-0">
               <span className="font-bold text-muted uppercase tracking-wider text-[10px]">ตัวกรองรายชื่อ:</span>
               
               {/* Level */}
@@ -1773,7 +1820,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* List display */}
-          <div className="overflow-x-auto max-h-[600px] overflow-y-auto scrollbar-thin">
+          <div className="overflow-x-auto max-h-[600px] overflow-y-auto scrollbar-thin -mx-4 sm:-mx-5 px-4 sm:px-5">
             {activeTab === 'present' ? (
               // Present Students List
               filteredPresentList.length === 0 ? (

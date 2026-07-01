@@ -52,7 +52,11 @@ db.exec(`
     close_at TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     academic_year TEXT DEFAULT '2569',
-    term TEXT DEFAULT '1'
+    term TEXT DEFAULT '1',
+    token TEXT,
+    latitude REAL DEFAULT NULL,
+    longitude REAL DEFAULT NULL,
+    radius INTEGER DEFAULT 500
   );
 
   CREATE TABLE IF NOT EXISTS attendances (
@@ -72,6 +76,9 @@ db.exec(`
     level TEXT DEFAULT 'ปวช',
     year TEXT,
     major_name TEXT,
+    device_uuid TEXT,
+    latitude REAL DEFAULT NULL,
+    longitude REAL DEFAULT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions (id)
   );
 
@@ -294,6 +301,51 @@ try {
 } catch (error: any) {
   if (!error.message.includes('duplicate column name')) {
     console.error('Migration Error (attendances.device_uuid):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE sessions ADD COLUMN latitude REAL DEFAULT NULL;');
+  console.log('Database Migration: Added latitude column to sessions table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (sessions.latitude):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE sessions ADD COLUMN longitude REAL DEFAULT NULL;');
+  console.log('Database Migration: Added longitude column to sessions table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (sessions.longitude):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE sessions ADD COLUMN radius INTEGER DEFAULT 500;');
+  console.log('Database Migration: Added radius column to sessions table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (sessions.radius):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN latitude REAL DEFAULT NULL;');
+  console.log('Database Migration: Added latitude column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.latitude):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN longitude REAL DEFAULT NULL;');
+  console.log('Database Migration: Added longitude column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.longitude):', error);
   }
 }
 

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Users, 
@@ -1058,7 +1058,7 @@ export default function AdminStudents() {
               </div>
 
               {/* Advanced Filter Dropdowns */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                 <select
                   value={filterLevel}
                   onChange={(e) => setFilterLevel(e.target.value)}

@@ -192,7 +192,7 @@ export default function UserDashboard() {
                     <CheckCircle2 size={14} className="text-success" />
                     <span>เช็กชื่อแล้ว</span>
                   </div>
-                  <p className="text-3xl font-black text-ink">{attendedCount} คาบ</p>
+                  <p className="text-3xl font-black text-ink">{attendedCount} ครั้ง</p>
                 </div>
 
                 <div className="bg-surface-card border border-hairline p-5 rounded-lg">
@@ -200,7 +200,7 @@ export default function UserDashboard() {
                     <AlertTriangle size={14} className="text-error" />
                     <span>ไม่เข้ากิจกรรม</span>
                   </div>
-                  <p className="text-3xl font-black text-ink">{missedCount} คาบ</p>
+                  <p className="text-3xl font-black text-ink">{missedCount} ครั้ง</p>
                 </div>
               </div>
 
@@ -215,8 +215,8 @@ export default function UserDashboard() {
                 </div>
                 <p className="text-[10px] text-muted-soft">
                   {rate >= 80 
-                    ? 'สถิติยอดเยี่ยม! อันตราการเข้ากิจกรรมของคุณผ่านเกณฑ์ขั้นต่ำ 80%' 
-                    : 'อัตราเช็กชื่อต่ำกว่าเกณฑ์ 80% (กรุณาเข้ากิจกรรมถัดไปเพื่อป้องกันชั่วโมงไม่ครบ)'}
+                    ? 'สถิติยอดเยี่ยม! อันตราการเข้ากิจกรรมของคุณผ่านเกณฑ์ขั้นต่ำ ' 
+                    : 'อัตราเช็กชื่อต่ำกว่าเกณฑ์ (กรุณาเข้ากิจกรรมถัดไปเพื่อป้องกันชั่วโมงไม่ครบ)'}
                 </p>
               </div>
             </div>

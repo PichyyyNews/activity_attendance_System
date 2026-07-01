@@ -337,12 +337,12 @@ export default function AdminSettings() {
             <p className="text-xs text-muted-soft">นำไฟล์คีย์ JSON จาก Google Cloud Console (Service Account) มาวางในช่องด้านบน</p>
           </div>
         </div>
-        <div className="bg-surface-soft border-t border-hairline px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+        <div className="bg-surface-soft border-t border-hairline px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-1.5 text-xs text-muted">
-            <FileText size={13} /><span>การปรับเปลี่ยนค่าจำเป็นต้องใช้สิทธิ์เขียนไฟล์บนฐานข้อมูล SQLite</span>
+            <FileText size={13} className="shrink-0" /><span>การปรับเปลี่ยนค่าจำเป็นต้องใช้สิทธิ์เขียนไฟล์บนฐานข้อมูล SQLite</span>
           </div>
           <button onClick={handleSave} disabled={loading}
-            className="inline-flex items-center gap-2 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white px-5 py-2.5 rounded-md text-sm font-semibold transition-all active:scale-98 cursor-pointer">
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white px-5 py-2.5 rounded-md text-sm font-semibold transition-all active:scale-98 cursor-pointer">
             {loading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>กำลังบันทึก...</span></>
                      : <><Save size={14} /><span>บันทึกข้อมูลตั้งค่า</span></>}
           </button>
@@ -363,10 +363,10 @@ export default function AdminSettings() {
           {syncMessage && <AlertBanner type="success">{syncMessage}</AlertBanner>}
           {syncError   && <AlertBanner type="error">{syncError}</AlertBanner>}
         </div>
-        <div className="bg-surface-soft border-t border-hairline px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+        <div className="bg-surface-soft border-t border-hairline px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <p className="text-xs text-muted-soft">ตรวจสอบว่า Spreadsheet ID และ Credentials บันทึกถูกต้องก่อนดำเนินการ</p>
           <button onClick={handleSyncAll} disabled={syncLoading}
-            className="inline-flex items-center gap-2 bg-error hover:bg-error-active disabled:bg-surface-strong text-white px-5 py-2.5 rounded-md text-sm font-semibold transition-all active:scale-98 cursor-pointer">
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-error hover:bg-error-active disabled:bg-surface-strong text-white px-5 py-2.5 rounded-md text-sm font-semibold transition-all active:scale-98 cursor-pointer">
             {syncLoading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /><span>กำลังบันทึก...</span></>
                         : <span>ล้างและเขียนข้อมูลใหม่ทั้งหมด</span>}
           </button>
@@ -547,39 +547,40 @@ export default function AdminSettings() {
             ) : (
               <div className="divide-y divide-hairline border border-hairline rounded-lg overflow-hidden">
                 {snapshots.map((snap) => (
-                  <div key={snap.id} className={`flex items-start gap-4 p-4 bg-canvas ${!snap.file_exists ? 'bg-[#fef2f2]' : ''}`}>
-
-                    {/* Icon */}
-                    <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-[#f5f5f5] border border-hairline flex items-center justify-center">
-                      <Camera size={16} className="text-ink" />
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-ink text-sm">{snap.label}</span>
-                        {!snap.file_exists && (
-                          <span className="text-[10px] bg-error/10 text-error border border-error/20 rounded px-1.5 py-0.5 font-semibold">ไฟล์หาย</span>
-                        )}
+                  <div key={snap.id} className={`flex flex-col sm:flex-row items-stretch sm:items-start gap-4 p-4 bg-canvas ${!snap.file_exists ? 'bg-[#fef2f2]' : ''}`}>
+                    <div className="flex items-start gap-4 flex-grow min-w-0">
+                      {/* Icon */}
+                      <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-[#f5f5f5] border border-hairline flex items-center justify-center">
+                        <Camera size={16} className="text-ink" />
                       </div>
-                      {snap.description && <p className="text-xs text-muted">{snap.description}</p>}
-                      <div className="flex items-center gap-4 flex-wrap">
-                        <span className="flex items-center gap-1 text-xs text-muted-soft">
-                          <Clock size={10} />{formatDateTH(snap.created_at)}
-                        </span>
-                        <span className="flex items-center gap-1 text-xs text-muted-soft">
-                          <HardDrive size={10} />{formatBytes(snap.size_bytes)}
-                        </span>
-                        {snap.record_counts?.attendances !== undefined && (
-                          <span className="text-xs text-muted-soft">
-                            เช็กชื่อ&ensp;<strong className="text-ink">{snap.record_counts.attendances}</strong>&ensp;รายการ
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-ink text-sm">{snap.label}</span>
+                          {!snap.file_exists && (
+                            <span className="text-[10px] bg-error/10 text-error border border-error/20 rounded px-1.5 py-0.5 font-semibold">ไฟล์หาย</span>
+                          )}
+                        </div>
+                        {snap.description && <p className="text-xs text-muted">{snap.description}</p>}
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <span className="flex items-center gap-1 text-xs text-muted-soft">
+                            <Clock size={10} />{formatDateTH(snap.created_at)}
                           </span>
-                        )}
+                          <span className="flex items-center gap-1 text-xs text-muted-soft">
+                            <HardDrive size={10} />{formatBytes(snap.size_bytes)}
+                          </span>
+                          {snap.record_counts?.attendances !== undefined && (
+                            <span className="text-xs text-muted-soft">
+                              เช็กชื่อ&ensp;<strong className="text-ink">{snap.record_counts.attendances}</strong>&ensp;รายการ
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="flex items-center justify-end gap-1.5 flex-shrink-0 sm:pt-1">
                       {snap.file_exists && (
                         <button onClick={() => handleDownloadSnapshot(snap.id, snap.filename)}
                           title="ดาวน์โหลด .sqlite"

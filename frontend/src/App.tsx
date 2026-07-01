@@ -550,6 +550,7 @@ function App() {
         {/* Public Routes */}
         <Route path="/" element={<UserDashboard />} />
         <Route path="/scan/:token" element={<UserScanForm />} />
+        <Route path="/scan" element={<UserScanForm />} />
 
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>

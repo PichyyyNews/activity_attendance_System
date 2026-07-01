@@ -225,7 +225,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Settings CRUD
-app.get('/api/settings', (req, res) => {
+app.get('api/settings', (req, res) => {
   try {
     const stmt = db.prepare('SELECT * FROM settings WHERE id = 1');
     const settings = stmt.get() as any;
@@ -594,16 +594,20 @@ app.get('/api/sessions/:id', (req, res) => {
 });
 
 app.post('/api/sessions', (req, res) => {
-  const { week_number, title, date, close_at } = req.body;
+  const { week_number, title, date, close_at, latitude, longitude, radius } = req.body;
   const { academic_year, term } = getActiveSettings();
   if (!week_number || !title || !date) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
   try {
     const token = crypto.randomBytes(16).toString('hex');
-    const stmt = db.prepare('INSERT INTO sessions (week_number, title, date, close_at, academic_year, term, token) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    const result = stmt.run(week_number, title, date, close_at || null, academic_year, term, token);
-    res.json({ id: result.lastInsertRowid, week_number, title, date, close_at: close_at || null, academic_year, term, token });
+    const rad = radius !== undefined && radius !== null && radius !== '' ? parseInt(radius) : 500;
+    const lat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
+    const lng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+    
+    const stmt = db.prepare('INSERT INTO sessions (week_number, title, date, close_at, academic_year, term, token, latitude, longitude, radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const result = stmt.run(week_number, title, date, close_at || null, academic_year, term, token, lat, lng, rad);
+    res.json({ id: result.lastInsertRowid, week_number, title, date, close_at: close_at || null, academic_year, term, token, latitude: lat, longitude: lng, radius: rad });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to create session' });
@@ -639,13 +643,17 @@ app.post('/api/sessions/:id/close-time', (req, res) => {
 // Update a specific session/week
 app.put('/api/sessions/:id', (req, res) => {
   const { id } = req.params;
-  const { week_number, title, date, close_at } = req.body;
+  const { week_number, title, date, close_at, latitude, longitude, radius } = req.body;
   if (!week_number || !title || !date) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
   try {
-    const stmt = db.prepare('UPDATE sessions SET week_number = ?, title = ?, date = ?, close_at = ? WHERE id = ?');
-    const result = stmt.run(week_number, title, date, close_at || null, id);
+    const rad = radius !== undefined && radius !== null && radius !== '' ? parseInt(radius) : 500;
+    const lat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
+    const lng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+
+    const stmt = db.prepare('UPDATE sessions SET week_number = ?, title = ?, date = ?, close_at = ?, latitude = ?, longitude = ?, radius = ? WHERE id = ?');
+    const result = stmt.run(week_number, title, date, close_at || null, lat, lng, rad, id);
     if (result.changes === 0) {
       return res.status(404).json({ error: 'ไม่พบคาบกิจกรรมที่ระบุ' });
     }
@@ -677,9 +685,24 @@ app.delete('/api/sessions/:id', (req, res) => {
   }
 });
 
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // Earth radius in meters
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // in meters
+}
+
 // Attendance CRUD
 app.post('/api/attendances', async (req, res) => {
-  const { session_id, prefix, first_name, last_name, student_id, level, year, major_name, major_code, room } = req.body;
+  const { session_id, prefix, first_name, last_name, student_id, level, year, major_name, major_code, room, device_uuid, latitude, longitude, bypass_gps } = req.body;
   
   if (!session_id || !prefix || !first_name || !last_name || !student_id || !level || !year || !major_name || !major_code || !room) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
@@ -713,6 +736,34 @@ app.post('/api/attendances', async (req, res) => {
       }
     }
 
+    // GPS Geofence Check (Bypassed if bypass_gps flag is set)
+    if (session.latitude !== null && session.longitude !== null && bypass_gps !== true) {
+      if (latitude === undefined || latitude === null || latitude === '' ||
+          longitude === undefined || longitude === null || longitude === '') {
+        return res.status(400).json({ error: 'กรุณาเปิดระบบระบุตำแหน่ง GPS บนอุปกรณ์ของท่านเพื่อทำรายการเช็กชื่อ' });
+      }
+      
+      const sLat = parseFloat(latitude);
+      const sLng = parseFloat(longitude);
+      if (isNaN(sLat) || isNaN(sLng)) {
+        return res.status(400).json({ error: 'พิกัด GPS ไม่ถูกต้อง' });
+      }
+      
+      const distance = getDistance(session.latitude, session.longitude, sLat, sLng);
+      const allowedRadius = session.radius || 500;
+      if (distance > allowedRadius) {
+        const distanceStr = distance >= 1000 
+          ? `${(distance / 1000).toFixed(2)} กิโลเมตร` 
+          : `${Math.round(distance)} เมตร`;
+        const allowedRadiusStr = allowedRadius >= 1000 
+          ? `${(allowedRadius / 1000).toFixed(2)} กิโลเมตร` 
+          : `${allowedRadius} เมตร`;
+        return res.status(400).json({ 
+          error: `คุณอยู่นอกพื้นที่เช็กชื่อกิจกรรมที่กำหนด (คุณอยู่ห่างจากสถานที่กิจกรรมประมาณ ${distanceStr} ซึ่งเกินระยะที่อนุญาต ${allowedRadiusStr})` 
+        });
+      }
+    }
+
     // Check duplicate check-in
     const duplicateStmt = db.prepare('SELECT id FROM attendances WHERE session_id = ? AND student_id = ?');
     if (duplicateStmt.get(session_id, student_id)) {
@@ -720,7 +771,6 @@ app.post('/api/attendances', async (req, res) => {
     }
 
     // Check duplicate check-in by device_uuid to prevent proxy check-ins
-    const { device_uuid } = req.body;
     if (device_uuid) {
       const deviceDuplicateStmt = db.prepare('SELECT student_id, first_name, last_name FROM attendances WHERE session_id = ? AND device_uuid = ?');
       const existing = deviceDuplicateStmt.get(session_id, device_uuid) as any;
@@ -731,10 +781,13 @@ app.post('/api/attendances', async (req, res) => {
       }
     }
 
+    const studentLat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
+    const studentLng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+
     // Insert attendance
     const insertStmt = db.prepare(`
-      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid, latitude, longitude)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = insertStmt.run(
       session_id, 
@@ -752,7 +805,9 @@ app.post('/api/attendances', async (req, res) => {
       level.trim(),
       year.trim(),
       major_name.trim(),
-      device_uuid || null
+      device_uuid || null,
+      studentLat,
+      studentLng
     );
     
     const attendanceRecord = {

@@ -142,7 +142,7 @@ function HeatmapRow({
         return (
           <div
             key={session.id}
-            className="w-5 h-5 rounded-[3px] shrink-0 cursor-pointer transition-transform hover:scale-125 hover:z-10 relative flex items-center justify-center"
+            className="w-6 h-6 sm:w-5 sm:h-5 rounded-[3px] shrink-0 cursor-pointer touch-manipulation transition-transform hover:scale-125 hover:z-10 relative flex items-center justify-center"
             style={{ backgroundColor: bg, border: `1.5px solid ${border}` }}
             onClick={() => onClickCell(student, session)}
             onMouseEnter={e => {
@@ -231,6 +231,7 @@ export default function AdminAttendanceList() {
   const [loading, setLoading] = useState(false);
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
   const [search, setSearch] = useState('');
+  const [showLegend, setShowLegend] = useState(false);
 
   const [editingCell, setEditingCell] = useState<{
     student: Student;
@@ -349,20 +350,31 @@ export default function AdminAttendanceList() {
           <p className="text-muted text-sm mt-1">ดูประวัติการเข้ากิจกรรมรายกลุ่มเรียน แบบ Heatmap รายครั้ง</p>
         </div>
         {/* Legend */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-muted font-semibold">สถานะ:</span>
-          {legendItems.map(item => (
-            <div key={item.label} className="flex items-center gap-1 text-xs text-muted">
-              <div
-                className="w-4 h-4 rounded-[3px]"
-                style={{ backgroundColor: item.color, border: `1.5px solid ${item.border}` }}
-              />
-              <span>{item.label}</span>
+        <div className="flex flex-col gap-2">
+          {/* Mobile toggle button */}
+          <button
+            onClick={() => setShowLegend(prev => !prev)}
+            className="sm:hidden self-start flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-hairline bg-canvas text-xs font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+          >
+            <span>ดูคำอธิบายสี</span>
+            <ChevronRight size={13} className={`text-muted transition-transform ${showLegend ? 'rotate-90' : ''}`} />
+          </button>
+          {/* Legend items */}
+          <div className={`${showLegend ? 'flex' : 'hidden'} sm:flex items-center gap-2 flex-wrap`}>
+            <span className="text-xs text-muted font-semibold">สถานะ:</span>
+            {legendItems.map(item => (
+              <div key={item.label} className="flex items-center gap-1 text-xs text-muted">
+                <div
+                  className="w-4 h-4 rounded-[3px]"
+                  style={{ backgroundColor: item.color, border: `1.5px solid ${item.border}` }}
+                />
+                <span>{item.label}</span>
+              </div>
+            ))}
+            <div className="flex items-center gap-1 text-xs text-muted">
+              <div className="w-4 h-4 rounded-[3px]" style={{ backgroundColor: '#e2e8f0', border: '1.5px solid #cbd5e1' }} />
+              <span>ไม่มีข้อมูล</span>
             </div>
-          ))}
-          <div className="flex items-center gap-1 text-xs text-muted">
-            <div className="w-4 h-4 rounded-[3px]" style={{ backgroundColor: '#e2e8f0', border: '1.5px solid #cbd5e1' }} />
-            <span>ไม่มีข้อมูล</span>
           </div>
         </div>
       </div>
@@ -415,7 +427,7 @@ export default function AdminAttendanceList() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="ค้นหาชื่อหรือรหัสนักศึกษา..."
-                className="h-9 w-64 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                className="h-9 w-full sm:w-64 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
               />
             </div>
           )}
@@ -427,12 +439,12 @@ export default function AdminAttendanceList() {
               <p className="text-sm text-muted font-medium">กำลังโหลดข้อมูล...</p>
             </div>
           ) : heatmapData && (
-            <div className="bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden">
-              {/* Column Headers (Week numbers) */}
-              <div className="border-b border-hairline overflow-x-auto">
-                <div className="flex items-center min-w-max">
+            <div className="bg-canvas border border-hairline rounded-lg shadow-sm overflow-x-auto scrollbar-thin">
+              <div className="min-w-max flex flex-col">
+                {/* Column Headers (Week numbers) */}
+                <div className="border-b border-hairline flex items-center">
                   {/* Fixed left column header */}
-                  <div className="sticky left-0 z-20 bg-surface-soft w-72 shrink-0 px-4 py-2.5 border-r border-hairline flex items-center gap-1.5">
+                  <div className="sticky left-0 z-20 bg-surface-soft w-48 sm:w-60 md:w-72 shrink-0 px-3 sm:px-4 py-2.5 border-r border-hairline flex items-center gap-1.5">
                     <Users size={13} className="text-muted" />
                     <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
                       นักศึกษา ({filteredStudents.length} คน)
@@ -443,7 +455,7 @@ export default function AdminAttendanceList() {
                     {sessions.map(session => (
                       <div
                         key={session.id}
-                        className="w-5 text-center shrink-0"
+                        className="w-6 sm:w-5 text-center shrink-0"
                         title={`ครั้งที่ ${session.week_number}: ${session.title} — ${formatDate(session.date)}`}
                       >
                         <div className="text-[9px] font-bold text-muted leading-tight">{session.week_number}</div>
@@ -451,91 +463,90 @@ export default function AdminAttendanceList() {
                     ))}
                   </div>
                 </div>
-              </div>
 
-              {/* Student rows */}
-              {filteredStudents.length === 0 ? (
-                <div className="py-12 text-center text-muted text-sm">ไม่พบนักศึกษาในกลุ่มนี้</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  {filteredStudents.map((student, idx) => {
-                    // Compute summary
-                    const totalPresent = sessions.filter(s => student.attendance[s.id] !== undefined).length;
-                    const rate = sessions.length > 0 ? Math.round((totalPresent / sessions.length) * 100) : 0;
+                {/* Student rows */}
+                {filteredStudents.length === 0 ? (
+                  <div className="py-12 text-center text-muted text-sm border-b border-hairline">ไม่พบนักศึกษาในกลุ่มนี้</div>
+                ) : (
+                  <div className="divide-y divide-hairline">
+                    {filteredStudents.map((student, idx) => {
+                      // Compute summary
+                      const totalPresent = sessions.filter(s => student.attendance[s.id] !== undefined).length;
+                      const rate = sessions.length > 0 ? Math.round((totalPresent / sessions.length) * 100) : 0;
 
-
-                    return (
-                      <div
-                        key={student.student_id}
-                        className={`flex items-center min-w-max border-b border-hairline last:border-b-0 transition-colors hover:bg-surface-soft/60 ${
-                          idx % 2 === 0 ? '' : 'bg-surface-soft/20'
-                        }`}
-                      >
-                        {/* Fixed: index + student info */}
-                        <div className="sticky left-0 z-10 bg-inherit w-72 shrink-0 px-4 py-2.5 border-r border-hairline flex items-center gap-3">
-                          <span className="text-[11px] text-muted-soft font-bold w-5 text-right shrink-0">
-                            {idx + 1}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-bold text-ink truncate">
-                              {student.prefix}{student.first_name} {student.last_name}
-                            </div>
-                            <div className="text-[10px] text-muted-soft font-mono">{student.student_id}</div>
-                          </div>
-                          {/* Mini stat */}
-                          <div className="text-right shrink-0">
-                            <div className={`text-xs font-extrabold ${
-                              rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-amber-500' : 'text-red-500'
-                            }`}>{rate}%</div>
-                            <div className="text-[9px] text-muted-soft">{totalPresent}/{sessions.length}</div>
-                          </div>
-                        </div>
-
-                        {/* Heatmap cells */}
-                        <div className="px-4 py-2.5">
-                          <HeatmapRow
-                            student={student}
-                            sessions={sessions}
-                            onHover={setTooltip}
-                            onLeave={() => setTooltip(null)}
-                            onClickCell={handleCellClick}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Footer summary */}
-              {filteredStudents.length > 0 && sessions.length > 0 && (
-                <div className="border-t border-hairline px-4 py-2.5 bg-surface-soft/40 flex items-center gap-4 text-[11px] text-muted overflow-x-auto">
-                  <div className="sticky left-0 w-72 shrink-0 flex items-center gap-3 font-bold text-ink bg-surface-soft/40">
-                    <span className="w-5" />
-                    <span>สรุปรายครั้ง</span>
-                  </div>
-                  <div className="flex gap-[3px]">
-                    {sessions.map(session => {
-                      const presentCount = filteredStudents.filter(s => s.attendance[session.id] !== undefined).length;
-                      const total = filteredStudents.length;
-                      const pct = total > 0 ? Math.round((presentCount / total) * 100) : 0;
-                      const color = pct >= 80 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#f87171';
                       return (
                         <div
-                          key={session.id}
-                          className="w-5 h-5 rounded-[3px] shrink-0 flex items-center justify-center cursor-default"
-                          style={{ backgroundColor: color + '30', border: `1.5px solid ${color}` }}
-                          title={`ค${session.week_number}: ${presentCount}/${total} คน (${pct}%)`}
+                          key={student.student_id}
+                          className={`flex items-center border-b border-hairline last:border-b-0 transition-colors hover:bg-surface-strong ${
+                            idx % 2 === 0 ? 'bg-canvas' : 'bg-surface-soft'
+                          }`}
                         >
-                          <span className="text-[7px] font-bold" style={{ color }}>
-                            {pct}
-                          </span>
+                          {/* Fixed: index + student info */}
+                          <div className="sticky left-0 z-10 bg-inherit w-48 sm:w-60 md:w-72 shrink-0 px-3 sm:px-4 py-2.5 border-r border-hairline flex items-center gap-2 sm:gap-3">
+                            <span className="text-[11px] text-muted-soft font-bold w-5 text-right shrink-0">
+                              {idx + 1}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-bold text-ink truncate">
+                                {student.prefix}{student.first_name} {student.last_name}
+                              </div>
+                              <div className="text-[10px] text-muted-soft font-mono">{student.student_id}</div>
+                            </div>
+                            {/* Mini stat */}
+                            <div className="text-right shrink-0">
+                              <div className={`text-xs font-extrabold ${
+                                rate >= 80 ? 'text-green-600' : rate >= 60 ? 'text-amber-500' : 'text-red-500'
+                              }`}>{rate}%</div>
+                              <div className="text-[9px] text-muted-soft">{totalPresent}/{sessions.length}</div>
+                            </div>
+                          </div>
+
+                          {/* Heatmap cells */}
+                          <div className="px-4 py-2.5">
+                            <HeatmapRow
+                              student={student}
+                              sessions={sessions}
+                              onHover={setTooltip}
+                              onLeave={() => setTooltip(null)}
+                              onClickCell={handleCellClick}
+                            />
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                </div>
-              )}
+                )}
+
+                {/* Footer summary */}
+                {filteredStudents.length > 0 && sessions.length > 0 && (
+                  <div className="border-t border-hairline px-4 py-2.5 bg-surface-soft flex items-center gap-4 text-[11px] text-muted">
+                    <div className="sticky left-0 z-10 bg-surface-soft w-48 sm:w-60 md:w-72 shrink-0 px-3 sm:px-4 py-2.5 border-r border-hairline flex items-center gap-3 font-bold text-ink">
+                      <span className="w-5" />
+                      <span>สรุปรายครั้ง</span>
+                    </div>
+                    <div className="flex gap-[3px]">
+                      {sessions.map(session => {
+                        const presentCount = filteredStudents.filter(s => s.attendance[session.id] !== undefined).length;
+                        const total = filteredStudents.length;
+                        const pct = total > 0 ? Math.round((presentCount / total) * 100) : 0;
+                        const color = pct >= 80 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#f87171';
+                        return (
+                          <div
+                            key={session.id}
+                            className="w-6 h-6 sm:w-5 sm:h-5 rounded-[3px] shrink-0 flex items-center justify-center cursor-default"
+                            style={{ backgroundColor: color + '30', border: `1.5px solid ${color}` }}
+                            title={`ค${session.week_number}: ${presentCount}/${total} คน (${pct}%)`}
+                          >
+                            <span className="text-[7px] font-bold" style={{ color }}>
+                              {pct}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -543,7 +554,7 @@ export default function AdminAttendanceList() {
 
       {/* Modal แก้ไขสถานะเช็กชื่อและหมายเหตุ */}
       {editingCell && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-canvas border border-hairline rounded-xl shadow-2xl p-6 w-full max-w-md space-y-5 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-hairline pb-3">
               <h3 className="font-bold text-lg text-ink flex items-center gap-2">
@@ -569,7 +580,7 @@ export default function AdminAttendanceList() {
               {/* Status Radio Toggles */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-ink">สถานะการเช็กชื่อ</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setEditingCell(prev => prev ? { ...prev, status: 'present' } : null)}

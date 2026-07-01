@@ -1,7 +1,44 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 max-w-md mx-auto my-10 bg-error/15 border border-error/30 text-error rounded-lg space-y-3">
+          <h1 className="text-lg font-bold">⚠️ เกิดข้อผิดพลาดในการโหลดหน้าจอ (React Crash)</h1>
+          <p className="text-xs font-mono bg-canvas p-3 rounded border border-hairline overflow-auto max-h-40">
+            {this.state.error?.toString() || 'Unknown Error'}
+          </p>
+          <p className="text-xs text-muted">กรุณาแจ้งข้อความแสดงความผิดพลาดนี้ให้กับผู้ดูแลระบบ</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-error text-white text-xs font-bold rounded-md hover:bg-error-active transition-colors cursor-pointer"
+          >
+            โหลดหน้าจอใหม่
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function getCookie(name: string) {
   const value = `; ${document.cookie}`;
@@ -17,28 +54,54 @@ function setCookie(name: string, value: string, days: number) {
   document.cookie = `${name}=${value}; ${expires}; path=/; SameSite=Lax`;
 }
 
-export default function UserScanForm() {
+const safeLocalStorage = {
+  getItem: (key: string): string => {
+    try {
+      return localStorage.getItem(key) || '';
+    } catch (e) {
+      console.warn('localStorage getItem blocked', e);
+      return '';
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn('localStorage setItem blocked', e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn('localStorage removeItem blocked', e);
+    }
+  }
+};
+
+function UserScanForm() {
   const { token } = useParams();
   const [majors, setMajors] = useState<{ id: number; level: string; year: string; major_name: string; major_code: string; room: string }[]>([]);
-  
+
   // Form states
-  const [prefix, setPrefix] = useState(() => localStorage.getItem('attendance_prefix') || '');
-  const [firstName, setFirstName] = useState(() => localStorage.getItem('attendance_firstName') || '');
-  const [lastName, setLastName] = useState(() => localStorage.getItem('attendance_lastName') || '');
-  const [studentId, setStudentId] = useState(() => localStorage.getItem('attendance_studentId') || '');
-  const [selectedMajorId, setSelectedMajorId] = useState(() => localStorage.getItem('attendance_selectedMajorId') || '');
-  const [level, setLevel] = useState(() => localStorage.getItem('attendance_level') || 'ปวช');
-  const [selectedYear, setSelectedYear] = useState(() => localStorage.getItem('attendance_selectedYear') || '1');
-  const [majorName, setMajorName] = useState(() => localStorage.getItem('attendance_majorName') || 'เทคนิคคอมพิวเตอร์');
-  const [selectedMajorCode, setSelectedMajorCode] = useState(() => localStorage.getItem('attendance_selectedMajorCode') || 'ชทค');
-  const [selectedRoom, setSelectedRoom] = useState(() => localStorage.getItem('attendance_selectedRoom') || '1');
-  const [rememberMe, setRememberMe] = useState(() => localStorage.getItem('attendance_remember') !== 'false');
+  const [prefix, setPrefix] = useState(() => safeLocalStorage.getItem('attendance_prefix'));
+  const [firstName, setFirstName] = useState(() => safeLocalStorage.getItem('attendance_firstName'));
+  const [lastName, setLastName] = useState(() => safeLocalStorage.getItem('attendance_lastName'));
+  const [studentId, setStudentId] = useState(() => safeLocalStorage.getItem('attendance_studentId'));
+  const [selectedMajorId, setSelectedMajorId] = useState(() => safeLocalStorage.getItem('attendance_selectedMajorId'));
+  const [level, setLevel] = useState(() => safeLocalStorage.getItem('attendance_level') || 'ปวช');
+  const [selectedYear, setSelectedYear] = useState(() => safeLocalStorage.getItem('attendance_selectedYear') || '1');
+  const [majorName, setMajorName] = useState(() => safeLocalStorage.getItem('attendance_majorName') || 'เทคนิคคอมพิวเตอร์');
+  const [selectedMajorCode, setSelectedMajorCode] = useState(() => safeLocalStorage.getItem('attendance_selectedMajorCode') || 'ชทค');
+  const [selectedRoom, setSelectedRoom] = useState(() => safeLocalStorage.getItem('attendance_selectedRoom') || '1');
+  const [rememberMe, setRememberMe] = useState(() => safeLocalStorage.getItem('attendance_remember') !== 'false');
   const [error, setError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [autoFilled, setAutoFilled] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
 
   // Session status states
-  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string } | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string; latitude?: number | null; longitude?: number | null; radius?: number } | null>(null);
   const [isSessionClosed, setIsSessionClosed] = useState(false);
   const [sessionClosedReason, setSessionClosedReason] = useState('');
   const [loadingSession, setLoadingSession] = useState(true);
@@ -61,13 +124,13 @@ export default function UserScanForm() {
 
   useEffect(() => {
     // Generate or retrieve persistent device UUID
-    let uuid = localStorage.getItem('device_uuid') || getCookie('device_uuid');
+    let uuid = safeLocalStorage.getItem('device_uuid') || getCookie('device_uuid');
     if (!uuid) {
       uuid = 'dev_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now().toString(36);
-      localStorage.setItem('device_uuid', uuid);
+      safeLocalStorage.setItem('device_uuid', uuid);
       setCookie('device_uuid', uuid, 365);
     } else {
-      localStorage.setItem('device_uuid', uuid);
+      safeLocalStorage.setItem('device_uuid', uuid);
       setCookie('device_uuid', uuid, 365);
     }
     setDeviceUuid(uuid);
@@ -78,6 +141,13 @@ export default function UserScanForm() {
       .catch(err => console.error('Error fetching majors:', err));
 
     // Fetch session details and accurate server time if token exists
+    if (!token) {
+      setLoadingSession(false);
+      setLoadingDeviceCheck(false);
+      setError('ไม่พบคิวอาร์โค้ดเช็กชื่อ หรือคิวอาร์โค้ดไม่ถูกต้อง กรุณาสแกนใหม่อีกครั้ง');
+      return;
+    }
+
     if (token) {
       setLoadingSession(true);
       setLoadingDeviceCheck(true);
@@ -88,7 +158,7 @@ export default function UserScanForm() {
         .then(([sessionRes, timeRes]) => {
           const session = sessionRes.data;
           setSessionInfo(session);
-          
+
           const nowServer = new Date(timeRes.data.datetime);
           const isExpired = session.close_at && nowServer > new Date(session.close_at);
           if (session.is_active === 0) {
@@ -134,7 +204,7 @@ export default function UserScanForm() {
             setMajorName(res.data.major_name);
             setSelectedMajorCode(res.data.major_code);
             setSelectedRoom(res.data.room);
-            
+
             const matched = majors.find(m => m.level === res.data.level && m.year === res.data.year && m.major_code === res.data.major_code && m.room === res.data.room);
             if (matched) {
               setSelectedMajorId(matched.id.toString());
@@ -150,6 +220,32 @@ export default function UserScanForm() {
         });
     }
   }, [studentId, majors]);
+
+  const getCurrentCoordinates = (): Promise<{ latitude: number; longitude: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('อุปกรณ์ของคุณไม่รองรับการดึงข้อมูลพิกัด GPS'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          });
+        },
+        (err) => {
+          console.error('GPS error:', err);
+          if (err.code === 1) {
+            reject(new Error('กรุณาอนุญาตสิทธิ์การเข้าถึงตำแหน่งที่ตั้ง (GPS) บนเบราว์เซอร์ของท่านเพื่อเช็กชื่อ'));
+          } else {
+            reject(new Error('ไม่สามารถระบุพิกัดตำแหน่งที่ตั้งได้ กรุณาลองใหม่อีกครั้ง'));
+          }
+        },
+        { enableHighAccuracy: true, timeout: 15000 }
+      );
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,6 +276,22 @@ export default function UserScanForm() {
       return;
     }
 
+    const hasGpsEnforcement = sessionInfo && sessionInfo.latitude !== null && sessionInfo.latitude !== undefined && sessionInfo.longitude !== null && sessionInfo.longitude !== undefined;
+
+    let coords = null;
+    if (hasGpsEnforcement) {
+      setGpsLoading(true);
+      setError('');
+      try {
+        coords = await getCurrentCoordinates();
+      } catch (err: any) {
+        setError(err.message || 'ไม่สามารถดึงตำแหน่ง GPS ได้');
+        setGpsLoading(false);
+        return;
+      }
+      setGpsLoading(false);
+    }
+
     try {
       await axios.post('/api/attendances', {
         session_id: sessionInfo.id,
@@ -192,33 +304,35 @@ export default function UserScanForm() {
         major_name: majorName,
         major_code: selectedMajorCode,
         room: selectedRoom,
-        device_uuid: deviceUuid
+        device_uuid: deviceUuid,
+        latitude: coords ? coords.latitude : null,
+        longitude: coords ? coords.longitude : null
       });
 
       if (rememberMe) {
-        localStorage.setItem('attendance_prefix', prefix);
-        localStorage.setItem('attendance_firstName', firstName);
-        localStorage.setItem('attendance_lastName', lastName);
-        localStorage.setItem('attendance_studentId', studentId);
-        localStorage.setItem('attendance_selectedMajorId', selectedMajorId);
-        localStorage.setItem('attendance_level', level);
-        localStorage.setItem('attendance_selectedYear', selectedYear);
-        localStorage.setItem('attendance_majorName', majorName);
-        localStorage.setItem('attendance_selectedMajorCode', selectedMajorCode);
-        localStorage.setItem('attendance_selectedRoom', selectedRoom);
-        localStorage.setItem('attendance_remember', 'true');
+        safeLocalStorage.setItem('attendance_prefix', prefix);
+        safeLocalStorage.setItem('attendance_firstName', firstName);
+        safeLocalStorage.setItem('attendance_lastName', lastName);
+        safeLocalStorage.setItem('attendance_studentId', studentId);
+        safeLocalStorage.setItem('attendance_selectedMajorId', selectedMajorId);
+        safeLocalStorage.setItem('attendance_level', level);
+        safeLocalStorage.setItem('attendance_selectedYear', selectedYear);
+        safeLocalStorage.setItem('attendance_majorName', majorName);
+        safeLocalStorage.setItem('attendance_selectedMajorCode', selectedMajorCode);
+        safeLocalStorage.setItem('attendance_selectedRoom', selectedRoom);
+        safeLocalStorage.setItem('attendance_remember', 'true');
       } else {
-        localStorage.removeItem('attendance_prefix');
-        localStorage.removeItem('attendance_firstName');
-        localStorage.removeItem('attendance_lastName');
-        localStorage.removeItem('attendance_studentId');
-        localStorage.removeItem('attendance_selectedMajorId');
-        localStorage.removeItem('attendance_level');
-        localStorage.removeItem('attendance_selectedYear');
-        localStorage.removeItem('attendance_majorName');
-        localStorage.removeItem('attendance_selectedMajorCode');
-        localStorage.removeItem('attendance_selectedRoom');
-        localStorage.setItem('attendance_remember', 'false');
+        safeLocalStorage.removeItem('attendance_prefix');
+        safeLocalStorage.removeItem('attendance_firstName');
+        safeLocalStorage.removeItem('attendance_lastName');
+        safeLocalStorage.removeItem('attendance_studentId');
+        safeLocalStorage.removeItem('attendance_selectedMajorId');
+        safeLocalStorage.removeItem('attendance_level');
+        safeLocalStorage.removeItem('attendance_selectedYear');
+        safeLocalStorage.removeItem('attendance_majorName');
+        safeLocalStorage.removeItem('attendance_selectedMajorCode');
+        safeLocalStorage.removeItem('attendance_selectedRoom');
+        safeLocalStorage.setItem('attendance_remember', 'false');
       }
 
       setIsSuccess(true);
@@ -270,7 +384,7 @@ export default function UserScanForm() {
           </div>
 
           <div className="pt-2">
-            <Link 
+            <Link
               to={`/?id=${studentId}`}
               className="w-full h-11 bg-primary hover:bg-primary-active text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all"
             >
@@ -287,7 +401,7 @@ export default function UserScanForm() {
           <div className="space-y-2">
             <h1 className="text-xl sm:text-2xl font-bold text-[#b45309] tracking-tight">เครื่องนี้ได้เช็กชื่อกิจกรรมไปแล้ว</h1>
             <p className="text-muted text-xs leading-relaxed">
-              เครื่องนี้ทำรายการเช็กชื่อกิจกรรมครั้งที่ {sessionInfo?.week_number} สำเร็จแล้ว 
+              เครื่องนี้ทำรายการเช็กชื่อกิจกรรมครั้งที่ {sessionInfo?.week_number} สำเร็จแล้ว
               <br /><strong>ระบบไม่อนุญาตให้ใช้เช็กชื่อให้บุคคลอื่นหรือลงชื่อแทนกันได้</strong>
             </p>
           </div>
@@ -312,7 +426,7 @@ export default function UserScanForm() {
           </div>
 
           <div className="pt-2">
-            <Link 
+            <Link
               to={`/?id=${alreadyCheckedDetails.student_id}`}
               className="w-full h-11 bg-primary hover:bg-primary-active text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all"
             >
@@ -340,7 +454,7 @@ export default function UserScanForm() {
               <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight mt-1">เช็กชื่อเข้าร่วมกิจกรรม</h1>
               {sessionInfo && sessionInfo.close_at && !isSessionClosed && (
                 <p className="text-error text-[11px] sm:text-xs font-semibold mt-0.5 sm:mt-1">
-                  ⏰ ปิดรับเวลา {new Date(sessionInfo.close_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+                  ปิดรับเวลา {new Date(sessionInfo.close_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
                 </p>
               )}
               <p className="hidden sm:block text-muted text-xs mt-1">กรุณากรอกข้อมูลเพื่อใช้เป็นหลักฐานยืนยันการเช็กชื่อ</p>
@@ -380,11 +494,10 @@ export default function UserScanForm() {
                   type="button"
                   disabled={isSessionClosed}
                   onClick={() => setPrefix('นาย')}
-                  className={`h-10 flex items-center justify-center space-x-1.5 border rounded-md font-semibold text-sm transition-all cursor-pointer ${
-                    prefix === 'นาย'
-                      ? 'border-brand-accent bg-brand-accent/5 text-brand-accent ring-1 ring-brand-accent'
-                      : 'border-hairline bg-canvas text-ink hover:bg-surface-soft'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className={`h-10 flex items-center justify-center space-x-1.5 border rounded-md font-semibold text-sm transition-all cursor-pointer ${prefix === 'นาย'
+                    ? 'border-brand-accent bg-brand-accent/5 text-brand-accent ring-1 ring-brand-accent'
+                    : 'border-hairline bg-canvas text-ink hover:bg-surface-soft'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                     <circle cx="10" cy="14" r="6" />
@@ -397,11 +510,10 @@ export default function UserScanForm() {
                   type="button"
                   disabled={isSessionClosed}
                   onClick={() => setPrefix('นางสาว')}
-                  className={`h-10 flex items-center justify-center space-x-1.5 border rounded-md font-semibold text-sm transition-all cursor-pointer ${
-                    prefix === 'นางสาว'
-                      ? 'border-rose-500 bg-rose-500/5 text-rose-600 ring-1 ring-rose-500'
-                      : 'border-hairline bg-canvas text-ink hover:bg-surface-soft'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  className={`h-10 flex items-center justify-center space-x-1.5 border rounded-md font-semibold text-sm transition-all cursor-pointer ${prefix === 'นางสาว'
+                    ? 'border-rose-500 bg-rose-500/5 text-rose-600 ring-1 ring-rose-500'
+                    : 'border-hairline bg-canvas text-ink hover:bg-surface-soft'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                     <circle cx="12" cy="9" r="6" />
@@ -417,9 +529,9 @@ export default function UserScanForm() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">ชื่อจริง</label>
-                <input 
-                  required 
-                  type="text" 
+                <input
+                  required
+                  type="text"
                   value={firstName}
                   onChange={e => setFirstName(e.target.value)}
                   disabled={isSessionClosed}
@@ -429,9 +541,9 @@ export default function UserScanForm() {
               </div>
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">นามสกุล</label>
-                <input 
-                  required 
-                  type="text" 
+                <input
+                  required
+                  type="text"
                   value={lastName}
                   onChange={e => setLastName(e.target.value)}
                   disabled={isSessionClosed}
@@ -446,20 +558,20 @@ export default function UserScanForm() {
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
                 {studentId.length > 0 && (
                   <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
-                    {studentId.length === 11 
-                      ? '✓ ครบ 11 หลักแล้ว' 
+                    {studentId.length === 11
+                      ? '✓ ครบ 11 หลักแล้ว'
                       : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
                     }
                   </span>
                 )}
               </div>
-              <input 
-                required 
-                type="text" 
+              <input
+                required
+                type="text"
                 inputMode="numeric"
-                pattern="[0-9]{11}" 
+                pattern="[0-9]{11}"
                 maxLength={11}
-                title="กรุณากรอกรหัสนักศึกษา 11 หลักให้ถูกต้อง" 
+                title="กรุณากรอกรหัสนักศึกษา 11 หลักให้ถูกต้อง"
                 value={studentId}
                 disabled={isSessionClosed}
                 onChange={e => {
@@ -468,12 +580,11 @@ export default function UserScanForm() {
                     setStudentId(val);
                   }
                 }}
-                className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
-                  studentId.length > 0 && studentId.length !== 11
-                    ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
-                    : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
-                } disabled:bg-surface-soft disabled:text-muted`}
-                placeholder="เช่น 64012345678" 
+                className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${studentId.length > 0 && studentId.length !== 11
+                  ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
+                  : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
+                  } disabled:bg-surface-soft disabled:text-muted`}
+                placeholder="เช่น 64012345678"
               />
             </div>
 
@@ -523,19 +634,29 @@ export default function UserScanForm() {
               </label>
             </div>
 
-            <button 
-              type="submit" 
-              disabled={isSessionClosed}
+            <button
+              type="submit"
+              disabled={isSessionClosed || gpsLoading}
               className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 sm:mt-2 cursor-pointer"
             >
-              <CheckSquare size={16} />
-              <span>{isSessionClosed ? 'ปิดรับเช็กชื่อแล้ว' : 'ยืนยันการเช็กชื่อกิจกรรม'}</span>
+              {gpsLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <CheckSquare size={16} />
+              )}
+              <span>
+                {isSessionClosed
+                  ? 'ปิดรับเช็กชื่อแล้ว'
+                  : gpsLoading
+                    ? 'กำลังดึงตำแหน่ง GPS...'
+                    : 'ยืนยันการเช็กชื่อกิจกรรม'}
+              </span>
             </button>
           </form>
 
           <div className="border-t border-hairline pt-4 sm:pt-5 text-center">
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               className="inline-flex items-center space-x-1.5 text-xs font-semibold text-muted hover:text-ink transition-colors"
             >
               <span>ต้องการตรวจสอบประวัติการเข้าร่วมกิจกรรม?</span>
@@ -550,5 +671,13 @@ export default function UserScanForm() {
         © {new Date().getFullYear()} AAS ขับเคลื่อนระบบด้วยฐานข้อมูล SQLite และ Google Sheets API
       </div>
     </div>
+  );
+}
+
+export default function UserScanFormWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <UserScanForm />
+    </ErrorBoundary>
   );
 }

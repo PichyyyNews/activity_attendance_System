@@ -1,7 +1,17 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
 import { Plus, QrCode, Calendar as CalendarIcon, Clipboard, Check, X, Download, Edit2, Trash2 } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon issue in Vite/React
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 const formatThaiDate = (dateStr: string) => {
   if (!dateStr) return '';
@@ -79,12 +89,13 @@ const isValidBeDate = (d: string, m: string, y: string) => {
 };
 
 export default function AdminSessions() {
-  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string }[]>([]);
+  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string; latitude?: number | null; longitude?: number | null; radius?: number }[]>([]);
   const [showQR, setShowQR] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
   // Modal states
   const [showModal, setShowModal] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
 
@@ -100,11 +111,171 @@ export default function AdminSessions() {
   const [closeYear, setCloseYear] = useState('');
   const [closeHour, setCloseHour] = useState('16');
   const [closeMinute, setCloseMinute] = useState('30');
+  
+  // Geolocation states
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [radius, setRadius] = useState('500');
+  
+  // Geolocation search states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchingAddress, setSearchingAddress] = useState(false);
+  const [pinningGPS, setPinningGPS] = useState(false);
+  
   const [error, setError] = useState('');
 
   useEffect(() => {
     fetchSessions();
   }, []);
+
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const circleRef = useRef<L.Circle | null>(null);
+
+  // Helper to update coords in React state
+  const updateCoordinates = (lat: number, lng: number) => {
+    setLatitude(lat.toString());
+    setLongitude(lng.toString());
+  };
+
+  // Browser GPS Geolocation helper
+  const triggerGPSLocation = () => {
+    if (!navigator.geolocation) {
+      alert('อุปกรณ์ของคุณไม่รองรับการดึงตำแหน่ง GPS');
+      return;
+    }
+    setPinningGPS(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const currentLat = pos.coords.latitude;
+        const currentLng = pos.coords.longitude;
+        updateCoordinates(currentLat, currentLng);
+        
+        if (mapRef.current && markerRef.current && circleRef.current) {
+          mapRef.current.setView([currentLat, currentLng], 16);
+          markerRef.current.setLatLng([currentLat, currentLng]);
+          circleRef.current.setLatLng([currentLat, currentLng]);
+        }
+        setPinningGPS(false);
+      },
+      (err) => {
+        console.error('GPS trigger error:', err);
+        let msg = 'ไม่สามารถดึงตำแหน่ง GPS ได้';
+        if (err.code === 1) msg = 'กรุณาอนุญาตสิทธิ์การเข้าถึงพิกัด GPS บนเบราว์เซอร์ของคุณ';
+        alert(msg);
+        setPinningGPS(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // OpenStreetMap Nominatim address search helper
+  const handleSearchAddress = async () => {
+    if (!searchQuery.trim()) return;
+    setSearchingAddress(true);
+    try {
+      const response = await axios.get(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`
+      );
+      if (response.data && response.data.length > 0) {
+        const first = response.data[0];
+        const lat = parseFloat(first.lat);
+        const lon = parseFloat(first.lon);
+        
+        updateCoordinates(lat, lon);
+        
+        if (mapRef.current && markerRef.current && circleRef.current) {
+          mapRef.current.setView([lat, lon], 16);
+          markerRef.current.setLatLng([lat, lon]);
+          circleRef.current.setLatLng([lat, lon]);
+        }
+      } else {
+        alert('ไม่พบข้อมูลสถานที่จัดกิจกรรมที่คุณระบุ กรุณาลองค้นหาด้วยคำที่กว้างขึ้น');
+      }
+    } catch (err) {
+      console.error('Search address error:', err);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเพื่อค้นหาสถานที่');
+    } finally {
+      setSearchingAddress(false);
+    }
+  };
+
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!showMapModal || !mapContainerRef.current) return;
+
+    let initLat = latitude ? parseFloat(latitude) : 13.7563;
+    let initLng = longitude ? parseFloat(longitude) : 100.5018;
+    let isDefault = !latitude || !longitude;
+
+    // Create Map
+    const map = L.map(mapContainerRef.current).setView([initLat, initLng], 16);
+    mapRef.current = map;
+
+    // Add Tile Layer (OpenStreetMap)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Create Circle
+    const radValue = parseInt(radius) || 500;
+    const circle = L.circle([initLat, initLng], {
+      radius: radValue,
+      color: '#2563eb', // Blue-600 border
+      fillColor: '#3b82f6', // Blue-500 fill
+      fillOpacity: 0.12,
+      weight: 1.5
+    }).addTo(map);
+    circleRef.current = circle;
+
+    // Create Draggable Marker
+    const marker = L.marker([initLat, initLng], {
+      draggable: true
+    }).addTo(map);
+    markerRef.current = marker;
+
+    if (isDefault) {
+      triggerGPSLocation();
+    }
+
+    // Update circle radius when radius changes in input
+    const interval = setInterval(() => {
+      const currentRadius = parseInt(radius) || 500;
+      if (circleRef.current && circleRef.current.getRadius() !== currentRadius) {
+        circleRef.current.setRadius(currentRadius);
+      }
+    }, 300);
+
+    // Marker drag event
+    marker.on('dragend', () => {
+      const pos = marker.getLatLng();
+      if (circleRef.current) {
+        circleRef.current.setLatLng(pos);
+      }
+      updateCoordinates(pos.lat, pos.lng);
+    });
+
+    // Map click event to relocate marker
+    map.on('click', (e) => {
+      if (markerRef.current) markerRef.current.setLatLng(e.latlng);
+      if (circleRef.current) circleRef.current.setLatLng(e.latlng);
+      updateCoordinates(e.latlng.lat, e.latlng.lng);
+    });
+
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 300);
+
+    return () => {
+      clearInterval(interval);
+      map.remove();
+      mapRef.current = null;
+      markerRef.current = null;
+      circleRef.current = null;
+    };
+  }, [showMapModal]);
 
   const fetchSessions = () => {
     axios.get('/api/sessions')
@@ -218,7 +389,10 @@ export default function AdminSessions() {
       week_number: parseInt(weekNumber),
       title,
       date: dateAd,
-      close_at: closeAtAd
+      close_at: closeAtAd,
+      latitude: latitude.trim() !== '' ? parseFloat(latitude) : null,
+      longitude: longitude.trim() !== '' ? parseFloat(longitude) : null,
+      radius: radius.trim() !== '' ? parseInt(radius) : 500
     };
 
     try {
@@ -240,6 +414,9 @@ export default function AdminSessions() {
       setCloseYear('');
       setCloseHour('16');
       setCloseMinute('30');
+      setLatitude('');
+      setLongitude('');
+      setRadius('500');
       setSelectedSessionId(null);
       fetchSessions();
     } catch (err: any) {
@@ -268,6 +445,10 @@ export default function AdminSessions() {
     setCloseYear(year);
     setCloseHour('16');
     setCloseMinute('30');
+    
+    setLatitude('');
+    setLongitude('');
+    setRadius('500');
     
     setError('');
     setShowModal(true);
@@ -316,6 +497,11 @@ export default function AdminSessions() {
       setCloseHour('16');
       setCloseMinute('30');
     }
+    
+    setLatitude(session.latitude !== null && session.latitude !== undefined ? session.latitude.toString() : '');
+    setLongitude(session.longitude !== null && session.longitude !== undefined ? session.longitude.toString() : '');
+    setRadius(session.radius !== null && session.radius !== undefined ? session.radius.toString() : '500');
+    
     setError('');
     setShowModal(true);
   };
@@ -377,7 +563,14 @@ export default function AdminSessions() {
                 return (
                   <tr key={session.id} className="hover:bg-surface-soft/40 transition-colors">
                     <td className="p-4 font-bold text-ink">ครั้งที่ {session.week_number}</td>
-                    <td className="p-4 text-sm font-semibold text-ink">{session.title}</td>
+                    <td className="p-4 text-sm font-semibold text-ink">
+                      <div>{session.title}</div>
+                      {session.latitude !== null && session.latitude !== undefined && (
+                        <div className="text-[10px] text-primary font-semibold mt-1">
+                           กำหนดพิกัด GPS (รัศมี {session.radius || 500} ม.)
+                        </div>
+                      )}
+                    </td>
                     <td className="p-4 text-sm text-body">{formatThaiDate(session.date)}</td>
                     <td className="p-4 text-sm">
                       <button
@@ -469,7 +662,14 @@ export default function AdminSessions() {
                         <span>{isClosed ? 'ปิดรับเช็กชื่อ' : 'เปิดรับเช็กชื่อ'}</span>
                       </button>
                     </div>
-                    <h3 className="text-base font-bold text-ink mt-2">{session.title}</h3>
+                    <h3 className="text-base font-bold text-ink mt-2">
+                      {session.title}
+                      {session.latitude !== null && session.latitude !== undefined && (
+                        <span className="block text-[10px] text-primary font-semibold mt-1">
+                           กำหนดพิกัด GPS (รัศมี {session.radius || 500} ม.)
+                        </span>
+                      )}
+                    </h3>
                     {session.close_at && !isClosed && (
                       <p className="text-[10px] text-muted-soft mt-1">
                         ปิดอัตโนมัติ: {formatThaiDateTime(session.close_at)}
@@ -531,10 +731,10 @@ export default function AdminSessions() {
 
       {/* Add/Edit Session Modal (Premium Dialog Overlay) */}
       {showModal && (
-        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm flex items-center justify-center p-6 z-50 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-3 sm:p-6 z-50 animate-in fade-in duration-200 overflow-y-auto">
           <form 
             onSubmit={handleModalSubmit}
-            className="bg-canvas border border-hairline rounded-lg shadow-2xl p-6 md:p-8 max-w-md w-full relative flex flex-col animate-in zoom-in-95 duration-200 space-y-6"
+            className="bg-canvas border border-hairline rounded-lg shadow-2xl p-4 sm:p-6 md:p-8 max-w-md w-full relative flex flex-col animate-in zoom-in-95 duration-200 space-y-5 sm:space-y-6 my-4 sm:my-0"
           >
             <button
               type="button"
@@ -735,6 +935,56 @@ export default function AdminSessions() {
                   </div>
                 )}
               </div>
+
+              {/* GPS Geofencing Section */}
+              <div className="space-y-3 pt-3 border-t border-hairline">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-semibold text-ink uppercase tracking-wider">
+                    ข้อจำกัดพิกัด GPS สำหรับเช็กชื่อ
+                  </label>
+                </div>
+
+                <div className="bg-surface-soft border border-hairline p-3.5 rounded-lg space-y-3.5">
+                  <div className="text-xs">
+                    {latitude && longitude ? (
+                      <div className="space-y-1">
+                        <p className="font-bold text-primary"> เปิดใช้งาน GPS Geofencing แล้ว</p>
+                        <p className="text-muted-soft">พิกัด: {parseFloat(latitude).toFixed(6)}, {parseFloat(longitude).toFixed(6)}</p>
+                        <p className="text-muted-soft">รัศมีเช็กชื่อ: {radius} เมตร</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-muted-soft">
+                        <p className="font-semibold"> X ปิดการระบุตำแหน่ง GPS</p>
+                        <p>นักศึกษาสามารถสแกนเช็กชื่อได้จากทุกสถานที่โดยไม่มีข้อจำกัด</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowMapModal(true)}
+                      className="flex-grow py-2 border border-primary text-primary hover:bg-primary/5 bg-canvas rounded-md text-xs font-bold transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
+                    >
+                      <span>ปักหมุดบนแผนที่</span>
+                    </button>
+                    {latitude && longitude && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLatitude('');
+                          setLongitude('');
+                          setRadius('500');
+                        }}
+                        className="px-3 py-2 border border-error/30 text-error hover:bg-error/5 bg-canvas rounded-md text-xs font-bold transition-colors flex items-center justify-center cursor-pointer"
+                        title="ล้างตำแหน่งที่ตั้ง"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-3 pt-2">
@@ -756,10 +1006,131 @@ export default function AdminSessions() {
         </div>
       )}
 
+      {/* Map Modal */}
+      {showMapModal && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 z-[60] animate-in fade-in duration-200">
+          <div className="bg-canvas border border-hairline rounded-lg shadow-2xl p-5 md:p-6 max-w-2xl w-full relative flex flex-col animate-in zoom-in-95 duration-200 space-y-4">
+            <button
+              type="button"
+              onClick={() => setShowMapModal(false)}
+              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full border border-hairline text-muted hover:text-ink hover:bg-surface-soft transition-colors z-10 bg-canvas"
+            >
+              <X size={16} />
+            </button>
+
+            <div>
+              <h2 className="text-lg font-bold text-ink tracking-tight">ปักหมุดสถานที่จัดกิจกรรม</h2>
+              <p className="text-xs text-muted mt-0.5">
+                คลิกบนแผนที่หรือลากหมุดสีน้ำเงินเพื่อเลือกจุดศูนย์กลาง และปรับแต่งรัศมีขอบเขตการเช็กชื่อ
+              </p>
+            </div>
+
+            {/* Search and GPS controls */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    handleSearchAddress();
+                  }
+                }}
+                placeholder="ค้นหาชื่อสถานที่จัดกิจกรรม เช่น 'มหาวิทยาลัย...', 'อาคารเรียน...'"
+                className="flex-grow h-10 border border-hairline rounded bg-canvas text-ink text-sm px-3.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-muted-soft"
+              />
+              <button
+                type="button"
+                onClick={handleSearchAddress}
+                disabled={searchingAddress}
+                className="px-4 bg-primary hover:bg-primary-active text-white text-xs font-semibold rounded-md transition-colors flex items-center justify-center cursor-pointer disabled:opacity-50 min-w-[70px]"
+              >
+                {searchingAddress ? 'ค้นหา...' : 'ค้นหา'}
+              </button>
+              <button
+                type="button"
+                onClick={triggerGPSLocation}
+                disabled={pinningGPS}
+                className="px-3 border border-success hover:bg-success/5 text-success text-xs font-semibold rounded-md transition-colors flex items-center justify-center cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                title="ปักหมุดตำแหน่ง GPS ปัจจุบันของฉัน"
+              >
+                 {pinningGPS ? 'กำลังดึง...' : 'ตำแหน่งของฉัน'}
+              </button>
+            </div>
+
+            {/* IP Geolocation Warning Alert */}
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2.5 text-[11px] text-amber-600 space-y-0.5 leading-relaxed">
+              <p className="font-bold flex items-center gap-1">
+                ⚠️ คำชี้แจงเรื่องพิกัดไม่ตรง (IP-based Location):
+              </p>
+              <p>
+                หากเปิดหน้าจอนี้ผ่าน **คอมพิวเตอร์/โน้ตบุ๊ก** พิกัดจากปุ่ม "ตำแหน่งของฉัน" มักจะคลาดเคลื่อน (เช่น ปักไปกรุงเทพฯ) เนื่องจากคอมพิวเตอร์ไม่มีชิป GPS จริง 
+                <strong> แนะนำให้พิมพ์ค้นหาชื่อสถานที่ (เช่น มทร.ธัญบุรี) ในช่องค้นหาด้านบน หรือลากหมุดบนแผนที่ไปยังจุดจัดกิจกรรมจริงแทน</strong>
+              </p>
+            </div>
+
+            {/* Map Container */}
+            <div 
+              ref={mapContainerRef} 
+              className="w-full h-80 sm:h-96 rounded-lg border border-hairline z-0"
+              style={{ minHeight: '300px' }}
+            ></div>
+
+            {/* Controls */}
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-surface-soft border border-hairline p-3 rounded-lg">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-xs font-bold text-ink uppercase tracking-wider whitespace-nowrap">ขอบเขตรัศมี:</span>
+                <input 
+                  type="number"
+                  min="10"
+                  max="10000"
+                  value={radius}
+                  onChange={e => setRadius(e.target.value)}
+                  className="w-24 h-9 border border-hairline rounded bg-canvas text-ink text-xs px-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-semibold"
+                  placeholder="เช่น 500"
+                />
+                <span className="text-xs text-muted font-medium">เมตร</span>
+              </div>
+              
+              <div className="text-right text-[11px] text-muted-soft hidden sm:block">
+                {latitude && longitude ? (
+                  <span>พิกัด: {parseFloat(latitude).toFixed(5)}, {parseFloat(longitude).toFixed(5)}</span>
+                ) : (
+                  <span>กำลังดึงตำแหน่งของท่าน...</span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-1">
+              <button 
+                type="button"
+                onClick={() => setShowMapModal(false)}
+                className="px-4 py-2 border border-hairline text-ink rounded-md text-xs font-semibold hover:bg-surface-soft transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                type="button"
+                onClick={() => {
+                  if (!latitude || !longitude) {
+                    alert('กรุณารอแผนที่โหลดพิกัดหรือระบุตำแหน่งก่อนยืนยัน');
+                    return;
+                  }
+                  setShowMapModal(false);
+                }}
+                className="px-4 py-2 bg-primary hover:bg-primary-active text-white rounded-md text-xs font-semibold transition-colors cursor-pointer"
+              >
+                 ยืนยันพิกัดตำแหน่งนี้
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR Code Modal (Premium Dialog Overlay) */}
       {showQR !== null && (
-        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm flex items-center justify-center p-6 z-50 animate-in fade-in duration-200">
-          <div className="bg-canvas border border-hairline rounded-lg shadow-2xl p-8 max-w-sm w-full relative flex flex-col items-center animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 z-50 animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-canvas border border-hairline rounded-lg shadow-2xl p-5 sm:p-8 max-w-sm w-full relative flex flex-col items-center animate-in zoom-in-95 duration-200 my-4">
             {/* Close Button */}
             <button
               onClick={() => setShowQR(null)}
