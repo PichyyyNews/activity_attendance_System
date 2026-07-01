@@ -17,3 +17,7 @@ acoustic-arch-*.json
 .env.*
 !.env.example
 !.env.*.example
+
+# Tar archives
+*.tar
+*.tar.gz

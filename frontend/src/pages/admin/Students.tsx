@@ -66,6 +66,7 @@ export default function AdminStudents() {
   const [inputNames, setInputNames] = useState('');
   
   const [importing, setImporting] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -358,7 +359,7 @@ export default function AdminStudents() {
 
   const previewData = getPreviewList();
 
-  const handleImport = async (e: React.FormEvent) => {
+  const handleImport = (e: React.FormEvent) => {
     e.preventDefault();
     setMessage('');
     setErrorMsg('');
@@ -378,6 +379,10 @@ export default function AdminStudents() {
       return;
     }
 
+    setShowImportConfirm(true);
+  };
+
+  const executeImport = async () => {
     setImporting(true);
     try {
       const res = await axios.post('/api/students/import', {
@@ -1351,6 +1356,48 @@ export default function AdminStudents() {
                 className="h-10 bg-error hover:bg-error-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
               >
                 ยืนยัน
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Import Confirmation Modal */}
+      {showImportConfirm && (
+        <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-canvas border border-hairline rounded-lg w-full max-w-md p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="space-y-2 text-center">
+              <h3 className="font-bold text-lg text-ink">ตรวจสอบและยืนยันการนำเข้าข้อมูล</h3>
+              <p className="text-xs text-muted">กรุณาตรวจสอบรายละเอียดความถูกต้องของกลุ่มเรียนด้านล่างนี้</p>
+              
+              <div className="text-left text-xs text-body space-y-2.5 bg-surface-soft p-4 border border-hairline rounded-lg mt-3">
+                <p>จำนวนรายชื่อนักศึกษาที่จะเพิ่ม: <strong className="text-primary text-sm">{idLinesCount}</strong> คน</p>
+                <p><strong>ระดับการศึกษา:</strong> {level}</p>
+                <p><strong>ชั้นปี:</strong> ปี {classYear}</p>
+                <p><strong>กลุ่มเรียน/ห้อง:</strong> กลุ่ม {room} (รหัสกลุ่ม: {classYear}{majorCode}{room})</p>
+                <p><strong>สาขาวิชา/สาขางาน:</strong> {majorName}</p>
+              </div>
+              
+              <p className="text-[11px] text-error font-medium pt-2 text-center">
+                * กรุณาตรวจสอบให้แน่ใจว่ารหัสกลุ่มเรียนและจำนวนข้อมูลนักเรียนตรงกับกลุ่มจริงในชั้นเรียน
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                onClick={() => setShowImportConfirm(false)}
+                className="h-10 border border-hairline rounded-md text-sm font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={() => {
+                  setShowImportConfirm(false);
+                  executeImport();
+                }}
+                className="h-10 bg-primary hover:bg-primary-active text-white rounded-md text-sm font-semibold transition-colors cursor-pointer"
+              >
+                ยืนยันการนำเข้า
               </button>
             </div>
           </div>

@@ -58,7 +58,8 @@ db.exec(`
     token TEXT,
     latitude REAL DEFAULT NULL,
     longitude REAL DEFAULT NULL,
-    radius INTEGER DEFAULT 500
+    radius INTEGER DEFAULT 500,
+    require_device_fingerprint INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS attendances (
@@ -81,6 +82,7 @@ db.exec(`
     device_uuid TEXT,
     latitude REAL DEFAULT NULL,
     longitude REAL DEFAULT NULL,
+    ip_address TEXT DEFAULT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions (id)
   );
 
@@ -338,6 +340,15 @@ try {
 }
 
 try {
+  db.exec('ALTER TABLE sessions ADD COLUMN require_device_fingerprint INTEGER DEFAULT 0;');
+  console.log('Database Migration: Added require_device_fingerprint column to sessions table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (sessions.require_device_fingerprint):', error);
+  }
+}
+
+try {
   db.exec('ALTER TABLE attendances ADD COLUMN latitude REAL DEFAULT NULL;');
   console.log('Database Migration: Added latitude column to attendances table.');
 } catch (error: any) {
@@ -352,6 +363,15 @@ try {
 } catch (error: any) {
   if (!error.message.includes('duplicate column name')) {
     console.error('Migration Error (attendances.longitude):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN ip_address TEXT DEFAULT NULL;');
+  console.log('Database Migration: Added ip_address column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.ip_address):', error);
   }
 }
 

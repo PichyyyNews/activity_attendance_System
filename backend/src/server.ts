@@ -14,8 +14,73 @@ dotenv.config({ path: path.join(__dirname, '../../.env') });
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',') 
+  : [];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or same-origin requests)
+    if (!origin) return callback(null, true);
+    // Allow local development origins and configured domains
+    if (
+      origin.startsWith('http://localhost:') || 
+      origin.startsWith('http://127.0.0.1:') || 
+      allowedOrigins.includes(origin)
+    ) {
+      return callback(null, true);
+    }
+    callback(null, false);
+  }
+}));
 app.use(express.json());
+
+// Timing-safe string comparison helper to prevent timing attacks
+function safeCompare(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) {
+      // Perform a dummy timingSafeEqual to avoid leaking length info via response time
+      crypto.timingSafeEqual(bufA, bufA);
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
+// Admin API Authentication Middleware
+app.use((req, res, next) => {
+  const path = req.path;
+  const method = req.method;
+  const ADMIN_PIN = process.env.ADMIN_PIN || '250669';
+
+  const isAdminPath = 
+    path.startsWith('/api/admin/') ||
+    path.startsWith('/api/settings') ||
+    path.startsWith('/api/systemlogs') ||
+    path.startsWith('/api/academic-years') ||
+    path.startsWith('/api/backup/') ||
+    path === '/api/attendance-heatmap' ||
+    path === '/api/attendances/update-status-remark' ||
+    (path.startsWith('/api/attendances/session/') && !path.includes('/device/')) ||
+    (path.startsWith('/api/attendances/') && (method === 'PUT' || method === 'DELETE')) ||
+    path === '/api/attendances/recent' ||
+    (path.startsWith('/api/sessions') && !path.startsWith('/api/sessions/by-token/')) ||
+    (path === '/api/students' || (path.startsWith('/api/students/') && method !== 'GET')) ||
+    (path.startsWith('/api/majors') && method !== 'GET');
+
+  if (isAdminPath) {
+    const pin = req.header('X-Admin-Pin');
+    if (!pin || !safeCompare(pin, ADMIN_PIN)) {
+      return res.status(401).json({ error: 'ไม่พบสิทธิ์การใช้งานของแอดมินหรือรหัส PIN ไม่ถูกต้อง' });
+    }
+  }
+
+  next();
+});
 
 function getBangkokISOString(date: Date): string {
   const formatter = new Intl.DateTimeFormat('en-US', {
@@ -238,6 +303,21 @@ async function syncToGoogleSheets(
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'API is running' });
+});
+
+app.post('/api/auth/verify', (req, res) => {
+  const { pin } = req.body;
+  const ADMIN_PIN = process.env.ADMIN_PIN || '250669';
+
+  if (!pin) {
+    return res.status(400).json({ error: 'กรุณากรอกรหัส PIN' });
+  }
+
+  if (safeCompare(pin, ADMIN_PIN)) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: 'รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง' });
+  }
 });
 
 // Settings CRUD
@@ -603,7 +683,7 @@ app.get('/api/sessions/:id', (req, res) => {
 });
 
 app.post('/api/sessions', (req, res) => {
-  const { week_number, title, date, close_at, latitude, longitude, radius } = req.body;
+  const { week_number, title, date, close_at, latitude, longitude, radius, require_device_fingerprint } = req.body;
   const { academic_year, term } = getActiveSettings();
   if (!week_number || !title || !date) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
@@ -613,10 +693,11 @@ app.post('/api/sessions', (req, res) => {
     const rad = radius !== undefined && radius !== null && radius !== '' ? parseInt(radius) : 500;
     const lat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
     const lng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+    const reqFp = require_device_fingerprint === 1 ? 1 : 0;
     
-    const stmt = db.prepare('INSERT INTO sessions (week_number, title, date, close_at, academic_year, term, token, latitude, longitude, radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const result = stmt.run(week_number, title, date, close_at || null, academic_year, term, token, lat, lng, rad);
-    res.json({ id: result.lastInsertRowid, week_number, title, date, close_at: close_at || null, academic_year, term, token, latitude: lat, longitude: lng, radius: rad });
+    const stmt = db.prepare('INSERT INTO sessions (week_number, title, date, close_at, academic_year, term, token, latitude, longitude, radius, require_device_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const result = stmt.run(...[week_number, title, date, close_at || null, academic_year, term, token, lat, lng, rad, reqFp] as any[]);
+    res.json({ id: result.lastInsertRowid, week_number, title, date, close_at: close_at || null, academic_year, term, token, latitude: lat, longitude: lng, radius: rad, require_device_fingerprint: reqFp });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to create session' });
@@ -652,7 +733,7 @@ app.post('/api/sessions/:id/close-time', (req, res) => {
 // Update a specific session/week
 app.put('/api/sessions/:id', (req, res) => {
   const { id } = req.params;
-  const { week_number, title, date, close_at, latitude, longitude, radius } = req.body;
+  const { week_number, title, date, close_at, latitude, longitude, radius, require_device_fingerprint } = req.body;
   if (!week_number || !title || !date) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
   }
@@ -660,9 +741,10 @@ app.put('/api/sessions/:id', (req, res) => {
     const rad = radius !== undefined && radius !== null && radius !== '' ? parseInt(radius) : 500;
     const lat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
     const lng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+    const reqFp = require_device_fingerprint === 1 ? 1 : 0;
 
-    const stmt = db.prepare('UPDATE sessions SET week_number = ?, title = ?, date = ?, close_at = ?, latitude = ?, longitude = ?, radius = ? WHERE id = ?');
-    const result = stmt.run(week_number, title, date, close_at || null, lat, lng, rad, id);
+    const stmt = db.prepare('UPDATE sessions SET week_number = ?, title = ?, date = ?, close_at = ?, latitude = ?, longitude = ?, radius = ?, require_device_fingerprint = ? WHERE id = ?');
+    const result = stmt.run(...[week_number, title, date, close_at || null, lat, lng, rad, reqFp, id] as any[]);
     if (result.changes === 0) {
       return res.status(404).json({ error: 'ไม่พบคาบกิจกรรมที่ระบุ' });
     }
@@ -745,7 +827,15 @@ app.post('/api/attendances', async (req, res) => {
       }
     }
 
-    // GPS Geofence Check (Bypassed if bypass_gps flag is set)
+    // GPS Geofence Check (Bypassed if bypass_gps flag is set, but requires Admin PIN verification)
+    if (bypass_gps === true) {
+      const ADMIN_PIN = process.env.ADMIN_PIN || '250669';
+      const pin = req.header('X-Admin-Pin');
+      if (!pin || !safeCompare(pin, ADMIN_PIN)) {
+        return res.status(401).json({ error: 'ไม่พบสิทธิ์การใช้งานของแอดมินหรือรหัส PIN ไม่ถูกต้องสำหรับการข้ามพิกัด GPS' });
+      }
+    }
+
     if (session.latitude !== null && session.longitude !== null && bypass_gps !== true) {
       if (latitude === undefined || latitude === null || latitude === '' ||
           longitude === undefined || longitude === null || longitude === '') {
@@ -793,10 +883,20 @@ app.post('/api/attendances', async (req, res) => {
     const studentLat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
     const studentLng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
 
+    // Get client IP address
+    let ipAddress = '';
+    const xForwardedFor = req.headers['x-forwarded-for'];
+    if (xForwardedFor) {
+      const list = typeof xForwardedFor === 'string' ? xForwardedFor.split(',') : xForwardedFor[0].split(',');
+      ipAddress = list[0].trim();
+    } else {
+      ipAddress = req.socket.remoteAddress || '';
+    }
+
     // Insert attendance
     const insertStmt = db.prepare(`
-      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid, latitude, longitude)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid, latitude, longitude, ip_address)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = insertStmt.run(
       session_id, 
@@ -816,7 +916,8 @@ app.post('/api/attendances', async (req, res) => {
       major_name.trim(),
       device_uuid || null,
       studentLat,
-      studentLng
+      studentLng,
+      ipAddress || null
     );
     
     const attendanceRecord = {
@@ -834,7 +935,8 @@ app.post('/api/attendances', async (req, res) => {
       term: session.term,
       level: level.trim(),
       year: year.trim(),
-      major_name: major_name.trim()
+      major_name: major_name.trim(),
+      ip_address: ipAddress || null
     };
 
     // Trigger async sync to Google Sheets
@@ -1095,6 +1197,60 @@ app.delete('/api/attendances/:id', (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to delete attendance record' });
+  }
+});
+
+// System Logs for Admin
+app.get('/api/systemlogs', (req, res) => {
+  try {
+    const { academic_year, term } = getActiveSettings();
+    
+    // Fetch all attendances with session info for current semester
+    const stmt = db.prepare(`
+      SELECT a.*, s.title as session_title, s.week_number 
+      FROM attendances a
+      JOIN sessions s ON a.session_id = s.id
+      WHERE s.academic_year = ? AND s.term = ?
+      ORDER BY a.attended_at DESC
+    `);
+    const logs = stmt.all(academic_year, term) as any[];
+
+    // Calculate flagging logic
+    // A record is flagged if there is another record with the same session_id, same non-empty ip_address,
+    // different student_id, and check-in times within 5 minutes (300,000 ms) of each other.
+    const windowMs = 5 * 60 * 1000;
+    
+    const processedLogs = logs.map((log) => {
+      const currentLogTime = new Date(log.attended_at).getTime();
+      
+      // Find matches
+      const matches = logs.filter((other) => {
+        if (other.id === log.id) return false;
+        if (other.session_id !== log.session_id) return false;
+        if (!log.ip_address || !other.ip_address) return false;
+        if (log.ip_address !== other.ip_address) return false;
+        if (log.student_id === other.student_id) return false;
+        
+        const otherLogTime = new Date(other.attended_at).getTime();
+        return Math.abs(currentLogTime - otherLogTime) <= windowMs;
+      });
+
+      return {
+        ...log,
+        is_flagged: matches.length > 0,
+        flagged_count: matches.length,
+        flagged_details: matches.map(m => ({
+          student_id: m.student_id,
+          name: `${m.prefix || ''}${m.first_name} ${m.last_name}`,
+          attended_at: m.attended_at
+        }))
+      };
+    });
+
+    res.json(processedLogs);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch system logs' });
   }
 });
 

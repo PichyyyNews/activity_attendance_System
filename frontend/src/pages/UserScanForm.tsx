@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { getHardwareFingerprint } from '../utils/fingerprint';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -155,7 +156,7 @@ function UserScanForm() {
         axios.get(`/api/sessions/by-token/${token}`),
         axios.get('/api/time')
       ])
-        .then(([sessionRes, timeRes]) => {
+        .then(async ([sessionRes, timeRes]) => {
           const session = sessionRes.data;
           setSessionInfo(session);
 
@@ -169,13 +170,27 @@ function UserScanForm() {
             setSessionClosedReason('หมดเวลาการเช็กชื่อเข้าร่วมกิจกรรมในสัปดาห์นี้แล้ว (ระบบปิดรับอัตโนมัติ)');
           }
 
-          // Check if device already checked in for this session
-          return axios.get(`/api/attendances/session/${session.id}/device/${uuid}`);
-        })
-        .then(deviceCheckRes => {
-          if (deviceCheckRes && deviceCheckRes.data) {
-            setAlreadyCheckedDetails(deviceCheckRes.data);
+          let finalDeviceUuid = uuid;
+          if (session.require_device_fingerprint === 1) {
+            try {
+              const hwFp = await getHardwareFingerprint();
+              finalDeviceUuid = hwFp;
+              setDeviceUuid(hwFp);
+            } catch (e) {
+              console.error('Failed to get hardware fingerprint:', e);
+            }
           }
+
+          // Check if device already checked in for this session
+          try {
+            const deviceCheckRes = await axios.get(`/api/attendances/session/${session.id}/device/${finalDeviceUuid}`);
+            if (deviceCheckRes && deviceCheckRes.data) {
+              setAlreadyCheckedDetails(deviceCheckRes.data);
+            }
+          } catch (deviceErr) {
+            console.error('Failed to check device attendance:', deviceErr);
+          }
+          
           setLoadingSession(false);
           setLoadingDeviceCheck(false);
         })
@@ -486,6 +501,41 @@ function UserScanForm() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
+                {studentId.length > 0 && (
+                  <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
+                    {studentId.length === 11
+                      ? '✓ ครบ 11 หลักแล้ว'
+                      : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
+                    }
+                  </span>
+                )}
+              </div>
+              <input
+                required
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{11}"
+                maxLength={11}
+                title="กรุณากรอกรหัสนักศึกษา 11 หลักให้ถูกต้อง"
+                value={studentId}
+                disabled={isSessionClosed}
+                onChange={e => {
+                  const val = e.target.value.replace(/[^0-9]/g, '');
+                  if (val.length <= 11) {
+                    setStudentId(val);
+                  }
+                }}
+                className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${studentId.length > 0 && studentId.length !== 11
+                  ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
+                  : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
+                  } disabled:bg-surface-soft disabled:text-muted`}
+                placeholder="เช่น 64012345678"
+              />
+            </div>
+
             {/* คำนำหน้าชื่อ (Prefix Selection Buttons) */}
             <div className="space-y-1">
               <label className="block text-xs font-semibold text-ink uppercase tracking-wider">คำนำหน้าชื่อ</label>
@@ -551,41 +601,6 @@ function UserScanForm() {
                   placeholder="เช่น นิวส์ก้า"
                 />
               </div>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex justify-between items-center">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
-                {studentId.length > 0 && (
-                  <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
-                    {studentId.length === 11
-                      ? '✓ ครบ 11 หลักแล้ว'
-                      : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
-                    }
-                  </span>
-                )}
-              </div>
-              <input
-                required
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]{11}"
-                maxLength={11}
-                title="กรุณากรอกรหัสนักศึกษา 11 หลักให้ถูกต้อง"
-                value={studentId}
-                disabled={isSessionClosed}
-                onChange={e => {
-                  const val = e.target.value.replace(/[^0-9]/g, '');
-                  if (val.length <= 11) {
-                    setStudentId(val);
-                  }
-                }}
-                className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${studentId.length > 0 && studentId.length !== 11
-                  ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
-                  : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
-                  } disabled:bg-surface-soft disabled:text-muted`}
-                placeholder="เช่น 64012345678"
-              />
             </div>
 
             <div className="space-y-1">

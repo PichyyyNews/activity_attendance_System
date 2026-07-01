@@ -1,12 +1,19 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Link, Outlet } from 'react-router-dom';
 import axios from 'axios';
-import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users, Plus } from 'lucide-react';
+import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users, Plus, ShieldAlert } from 'lucide-react';
+
+// Set up global axios default header for Admin authorization
+const savedPin = sessionStorage.getItem('admin_pin');
+if (savedPin) {
+  axios.defaults.headers.common['X-Admin-Pin'] = savedPin;
+}
 import AdminDashboard from './pages/admin/Dashboard';
 import AdminSettings from './pages/admin/Settings';
 import AdminSessions from './pages/admin/Sessions';
 import AdminAttendanceList from './pages/admin/AttendanceList';
 import AdminStudents from './pages/admin/Students';
+import AdminSystemLogs from './pages/admin/SystemLogs';
 import UserScanForm from './pages/UserScanForm';
 import UserDashboard from './pages/UserDashboard';
 
@@ -132,14 +139,20 @@ function AdminLayout() {
   const sheetUrl = sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}/edit` : null;
 
   if (!isAuthenticated) {
-    const handlePinSubmit = (e: React.FormEvent) => {
+    const handlePinSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (pin === '250669') {
-        sessionStorage.setItem('admin_authenticated', 'true');
-        setIsAuthenticated(true);
-        setPinError('');
-      } else {
-        setPinError('รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
+      setPinError('');
+      try {
+        const res = await axios.post('/api/auth/verify', { pin });
+        if (res.data.success) {
+          sessionStorage.setItem('admin_authenticated', 'true');
+          sessionStorage.setItem('admin_pin', pin);
+          axios.defaults.headers.common['X-Admin-Pin'] = pin;
+          setIsAuthenticated(true);
+          setPinError('');
+        }
+      } catch (err: any) {
+        setPinError(err.response?.data?.error || 'รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
         setPin('');
       }
     };
@@ -217,6 +230,7 @@ function AdminLayout() {
     { to: '/admin/sessions', label: 'คาบกิจกรรม', icon: Calendar },
     { to: '/admin/students', label: 'รายชื่อนักเรียน', icon: Users },
     { to: '/admin/attendance', label: 'ตารางเช็กชื่อ', icon: ClipboardCheck },
+    { to: '/admin/systemlog', label: 'บันทึกระบบ', icon: ShieldAlert },
     { to: '/admin/settings', label: 'ตั้งค่าระบบ', icon: Settings },
   ];
 
@@ -558,6 +572,7 @@ function App() {
           <Route path="sessions" element={<AdminSessions />} />
           <Route path="students" element={<AdminStudents />} />
           <Route path="attendance" element={<AdminAttendanceList />} />
+          <Route path="systemlog" element={<AdminSystemLogs />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Routes>

@@ -89,7 +89,7 @@ const isValidBeDate = (d: string, m: string, y: string) => {
 };
 
 export default function AdminSessions() {
-  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string; latitude?: number | null; longitude?: number | null; radius?: number }[]>([]);
+  const [sessions, setSessions] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string; latitude?: number | null; longitude?: number | null; radius?: number; require_device_fingerprint?: number }[]>([]);
   const [showQR, setShowQR] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
@@ -121,6 +121,9 @@ export default function AdminSessions() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchingAddress, setSearchingAddress] = useState(false);
   const [pinningGPS, setPinningGPS] = useState(false);
+  
+  // Device Fingerprint validation state
+  const [requireDeviceFingerprint, setRequireDeviceFingerprint] = useState(false);
   
   const [error, setError] = useState('');
 
@@ -240,14 +243,6 @@ export default function AdminSessions() {
       triggerGPSLocation();
     }
 
-    // Update circle radius when radius changes in input
-    const interval = setInterval(() => {
-      const currentRadius = parseInt(radius) || 500;
-      if (circleRef.current && circleRef.current.getRadius() !== currentRadius) {
-        circleRef.current.setRadius(currentRadius);
-      }
-    }, 300);
-
     // Marker drag event
     marker.on('dragend', () => {
       const pos = marker.getLatLng();
@@ -269,13 +264,20 @@ export default function AdminSessions() {
     }, 300);
 
     return () => {
-      clearInterval(interval);
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
       circleRef.current = null;
     };
   }, [showMapModal]);
+
+  // Update circle radius when radius state changes dynamically
+  useEffect(() => {
+    if (circleRef.current) {
+      const currentRadius = parseInt(radius) || 500;
+      circleRef.current.setRadius(currentRadius);
+    }
+  }, [radius]);
 
   const fetchSessions = () => {
     axios.get('/api/sessions')
@@ -392,7 +394,8 @@ export default function AdminSessions() {
       close_at: closeAtAd,
       latitude: latitude.trim() !== '' ? parseFloat(latitude) : null,
       longitude: longitude.trim() !== '' ? parseFloat(longitude) : null,
-      radius: radius.trim() !== '' ? parseInt(radius) : 500
+      radius: radius.trim() !== '' ? parseInt(radius) : 500,
+      require_device_fingerprint: requireDeviceFingerprint ? 1 : 0
     };
 
     try {
@@ -417,6 +420,7 @@ export default function AdminSessions() {
       setLatitude('');
       setLongitude('');
       setRadius('500');
+      setRequireDeviceFingerprint(false);
       setSelectedSessionId(null);
       fetchSessions();
     } catch (err: any) {
@@ -449,6 +453,7 @@ export default function AdminSessions() {
     setLatitude('');
     setLongitude('');
     setRadius('500');
+    setRequireDeviceFingerprint(false);
     
     setError('');
     setShowModal(true);
@@ -501,6 +506,7 @@ export default function AdminSessions() {
     setLatitude(session.latitude !== null && session.latitude !== undefined ? session.latitude.toString() : '');
     setLongitude(session.longitude !== null && session.longitude !== undefined ? session.longitude.toString() : '');
     setRadius(session.radius !== null && session.radius !== undefined ? session.radius.toString() : '500');
+    setRequireDeviceFingerprint(session.require_device_fingerprint === 1);
     
     setError('');
     setShowModal(true);
@@ -565,11 +571,18 @@ export default function AdminSessions() {
                     <td className="p-4 font-bold text-ink">ครั้งที่ {session.week_number}</td>
                     <td className="p-4 text-sm font-semibold text-ink">
                       <div>{session.title}</div>
-                      {session.latitude !== null && session.latitude !== undefined && (
-                        <div className="text-[10px] text-primary font-semibold mt-1">
-                           กำหนดพิกัด GPS (รัศมี {session.radius || 500} ม.)
-                        </div>
-                      )}
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {session.latitude !== null && session.latitude !== undefined && (
+                          <span className="inline-flex items-center text-[10px] text-primary font-semibold bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5">
+                             กำหนดพิกัด GPS (รัศมี {session.radius || 500} ม.)
+                          </span>
+                        )}
+                        {session.require_device_fingerprint === 1 && (
+                          <span className="inline-flex items-center text-[10px] text-success font-semibold bg-success/5 border border-success/10 rounded px-1.5 py-0.5">
+                             ยืนยันเครื่องจริง (Device Fingerprint)
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4 text-sm text-body">{formatThaiDate(session.date)}</td>
                     <td className="p-4 text-sm">
@@ -664,11 +677,18 @@ export default function AdminSessions() {
                     </div>
                     <h3 className="text-base font-bold text-ink mt-2">
                       {session.title}
-                      {session.latitude !== null && session.latitude !== undefined && (
-                        <span className="block text-[10px] text-primary font-semibold mt-1">
-                           กำหนดพิกัด GPS (รัศมี {session.radius || 500} ม.)
-                        </span>
-                      )}
+                      <span className="flex flex-wrap gap-1.5 mt-1 font-normal">
+                        {session.latitude !== null && session.latitude !== undefined && (
+                          <span className="inline-flex items-center text-[10px] text-primary font-semibold bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5">
+                             กำหนดพิกัด GPS (รัศมี {session.radius || 500} ม.)
+                          </span>
+                        )}
+                        {session.require_device_fingerprint === 1 && (
+                          <span className="inline-flex items-center text-[10px] text-success font-semibold bg-success/5 border border-success/10 rounded px-1.5 py-0.5">
+                             ยืนยันเครื่องจริง (Device Fingerprint)
+                          </span>
+                        )}
+                      </span>
                     </h3>
                     {session.close_at && !isClosed && (
                       <p className="text-[10px] text-muted-soft mt-1">
@@ -984,6 +1004,25 @@ export default function AdminSessions() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* Device Fingerprint Verification Section */}
+              <div className="space-y-3 pt-3 border-t border-hairline">
+                <div className="flex items-center space-x-2.5">
+                  <input 
+                    type="checkbox"
+                    id="requireDeviceFingerprint"
+                    checked={requireDeviceFingerprint}
+                    onChange={e => setRequireDeviceFingerprint(e.target.checked)}
+                    className="w-4 h-4 border border-hairline rounded text-primary focus:ring-primary cursor-pointer accent-primary"
+                  />
+                  <label htmlFor="requireDeviceFingerprint" className="text-xs font-semibold text-ink cursor-pointer select-none">
+                    เปิดใช้งานระบบยืนยันเครื่องจริง (Device Fingerprint)
+                  </label>
+                </div>
+                <p className="text-[11px] text-muted leading-relaxed pl-6.5">
+                  ป้องกันการเช็กชื่อแทนกันด้วยการใช้ลายนิ้วมือเครื่องแบบ Hardware-based (เช่น Canvas, GPU, จอภาพ, เวลา) ทำให้แม้เปลี่ยนเบราว์เซอร์หรือเคลียร์คุกกี้บนเครื่องเดิม ก็ยังระบุเป็นเครื่องเดิมและบล็อกการสแกนซ้ำ
+                </p>
               </div>
             </div>
 

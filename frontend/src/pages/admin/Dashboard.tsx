@@ -1614,7 +1614,7 @@ export default function AdminDashboard() {
                             : 'text-muted hover:text-ink'
                         }`}
                       >
-                        {v}ม.
+                        {v}m
                       </button>
                     ))}
                   </div>
@@ -1716,13 +1716,15 @@ export default function AdminDashboard() {
                               {/* X Axis timestamp */}
                               <text
                                 x={centerX}
-                                y="160"
-                                className={`text-[9px] font-bold transition-all ${
+                                y="158"
+                                transform={`rotate(-35, ${centerX}, 158)`}
+                                className={`text-[8.5px] font-bold transition-all ${
                                   hoveredScanIndex === idx ? 'fill-primary font-black' : 'fill-muted'
                                 }`}
-                                textAnchor="middle"
+                                textAnchor="end"
+                                dx="5"
                               >
-                                {item.time.replace(' น.', '')}
+                                {item.time.split(' - ')[0]}
                               </text>
                             </g>
                           );
