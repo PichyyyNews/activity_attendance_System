@@ -1548,10 +1548,11 @@ export default function AdminDashboard() {
                             <text
                               x={centerX}
                               y="160"
-                              className={`text-[9px] font-bold transition-all ${
+                              transform={`rotate(-35, ${centerX}, 160)`}
+                              className={`text-[8.5px] font-bold transition-all ${
                                 hoveredRoomIndex === idx ? 'fill-primary font-black' : 'fill-muted'
                               }`}
-                              textAnchor="middle"
+                              textAnchor="end"
                             >
                               {roomStat.room}
                             </text>

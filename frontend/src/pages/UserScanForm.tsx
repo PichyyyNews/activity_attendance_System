@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
-import { getHardwareFingerprint } from '../utils/fingerprint';
+import { getHardwareFingerprint, getDeviceSignals } from '../utils/fingerprint';
+import type { DeviceSignals } from '../utils/fingerprint';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
   constructor(props: any) {
@@ -102,7 +103,7 @@ function UserScanForm() {
   const [gpsLoading, setGpsLoading] = useState(false);
 
   // Session status states
-  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string; latitude?: number | null; longitude?: number | null; radius?: number } | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{ id: number; week_number: number; title: string; date: string; is_active: number; close_at: string | null; token: string; latitude?: number | null; longitude?: number | null; radius?: number; require_device_fingerprint?: number } | null>(null);
   const [isSessionClosed, setIsSessionClosed] = useState(false);
   const [sessionClosedReason, setSessionClosedReason] = useState('');
   const [loadingSession, setLoadingSession] = useState(true);
@@ -122,6 +123,8 @@ function UserScanForm() {
     attended_at: string;
   } | null>(null);
   const [loadingDeviceCheck, setLoadingDeviceCheck] = useState(true);
+  const [confidenceWarning, setConfidenceWarning] = useState<{ score: number; level: string } | null>(null);
+  const [deviceSignalsRef, setDeviceSignalsRef] = useState<DeviceSignals | null>(null);
 
   useEffect(() => {
     // Generate or retrieve persistent device UUID
@@ -171,21 +174,47 @@ function UserScanForm() {
           }
 
           let finalDeviceUuid = uuid;
+          let hwFpForCheck = '';
+          let signals: DeviceSignals | null = null;
           if (session.require_device_fingerprint === 1) {
             try {
-              const hwFp = await getHardwareFingerprint();
-              finalDeviceUuid = hwFp;
-              setDeviceUuid(hwFp);
+              const sigs = await getDeviceSignals();
+              signals = sigs;
+              setDeviceSignalsRef(sigs);
+              finalDeviceUuid = sigs.hardwareFingerprint;
+              hwFpForCheck = sigs.hardwareFingerprint;
+              setDeviceUuid(uuid); // Keep software UUID as primary identifier
             } catch (e) {
-              console.error('Failed to get hardware fingerprint:', e);
+              console.error('Failed to get device signals:', e);
+              // Fallback: try hardware fingerprint only
+              try {
+                const hwFp = await getHardwareFingerprint();
+                hwFpForCheck = hwFp;
+              } catch (e2) {
+                console.error('Failed to get hardware fingerprint:', e2);
+              }
             }
           }
 
           // Check if device already checked in for this session
+          // Uses composite check: software UUID + hardware fingerprint
           try {
-            const deviceCheckRes = await axios.get(`/api/attendances/session/${session.id}/device/${finalDeviceUuid}`);
+            const hwParam = hwFpForCheck ? `?hw=${encodeURIComponent(hwFpForCheck)}` : '';
+            const deviceCheckRes = await axios.get(`/api/attendances/session/${session.id}/device/${finalDeviceUuid}${hwParam}`);
             if (deviceCheckRes && deviceCheckRes.data) {
               setAlreadyCheckedDetails(deviceCheckRes.data);
+
+              // Background log attempt (without user interface interaction)
+              const storedStudentId = safeLocalStorage.getItem('attendance_studentId');
+              axios.post('/api/attendance-rejections/log-attempt', {
+                session_id: session.id,
+                device_uuid: uuid,
+                hardware_fingerprint: hwFpForCheck || null,
+                stored_student_id: storedStudentId || null,
+                device_signals: signals || undefined
+              }).catch(err => {
+                console.error('Background log attempt failed:', err);
+              });
             }
           } catch (deviceErr) {
             console.error('Failed to check device attendance:', deviceErr);
@@ -308,7 +337,7 @@ function UserScanForm() {
     }
 
     try {
-      await axios.post('/api/attendances', {
+      const response = await axios.post('/api/attendances', {
         session_id: sessionInfo.id,
         prefix: prefix,
         first_name: firstName,
@@ -321,8 +350,17 @@ function UserScanForm() {
         room: selectedRoom,
         device_uuid: deviceUuid,
         latitude: coords ? coords.latitude : null,
-        longitude: coords ? coords.longitude : null
+        longitude: coords ? coords.longitude : null,
+        device_signals: deviceSignalsRef || undefined
       });
+
+      // Handle confidence warning from backend (soft accept)
+      if (response.data?.confidence_warning) {
+        setConfidenceWarning({
+          score: response.data.confidence_score,
+          level: response.data.confidence_level
+        });
+      }
 
       if (rememberMe) {
         safeLocalStorage.setItem('attendance_prefix', prefix);
@@ -397,6 +435,22 @@ function UserScanForm() {
               <span className="font-semibold text-ink text-right text-xs">{level} • {majorName}</span>
             </div>
           </div>
+
+          {/* Confidence Warning Banner */}
+          {confidenceWarning && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3 text-left space-y-1">
+              <div className="flex items-center space-x-2">
+                <ShieldAlert size={16} className="text-amber-600 shrink-0" />
+                <span className="text-xs font-bold text-amber-700">พบการเปลี่ยนแปลงอุปกรณ์</span>
+              </div>
+              <p className="text-xs text-amber-600 leading-relaxed">
+                ระบบตรวจพบว่าอุปกรณ์หรือสภาพแวดล้อมของคุณมีการเปลี่ยนแปลง
+                {confidenceWarning.level === 'low'
+                  ? ' (ความน่าเชื่อถือต่ำ) ข้อมูลนี้ถูก flag ไว้เพื่อให้ผู้ดูแลระบบตรวจสอบ'
+                  : ' การเช็กชื่อได้รับการบันทึกเรียบร้อยแล้ว'}
+              </p>
+            </div>
+          )}
 
           <div className="pt-2">
             <Link

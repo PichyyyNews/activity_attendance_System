@@ -70,7 +70,9 @@ app.use((req, res, next) => {
     path === '/api/attendances/recent' ||
     (path.startsWith('/api/sessions') && method !== 'GET') ||
     (path === '/api/students' || (path.startsWith('/api/students/') && method !== 'GET')) ||
-    (path.startsWith('/api/majors') && method !== 'GET');
+    (path.startsWith('/api/majors') && method !== 'GET') ||
+    path.startsWith('/api/device-registrations') ||
+    (path.startsWith('/api/attendance-rejections') && !path.endsWith('/log-attempt'));
 
   if (isAdminPath) {
     const pin = req.header('X-Admin-Pin');
@@ -791,9 +793,202 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * c; // in meters
 }
 
+// Composite Device Identification — Confidence Scoring
+interface DeviceSignals {
+  hardwareFingerprint?: string;
+  screenInfo?: string;
+  cpuCores?: number;
+  deviceMemory?: number | null;
+  timezone?: string;
+  platform?: string;
+  os?: string;
+  gpuVendor?: string;
+  gpuRenderer?: string;
+  canvasHash?: string;
+  batteryLevel?: number | null;
+  userAgent?: string;
+}
+
+interface ConfidenceResult {
+  score: number;
+  flags: Record<string, boolean>;
+  matchDetails: Record<string, number>;
+}
+
+function calculateConfidenceScore(
+  signals: DeviceSignals,
+  deviceUuid: string,
+  ipAddress: string,
+  registrations: any[]
+): ConfidenceResult {
+  const flags: Record<string, boolean> = {};
+  const matchDetails: Record<string, number> = {};
+
+  // If no registrations exist for this student, this is a new device
+  if (!registrations || registrations.length === 0) {
+    flags.new_device = true;
+    // New device gets a moderate score — not suspicious, just unknown
+    return { score: 0.6, flags, matchDetails: { hardware: 0, uuid: 0, network: 0, battery: 0 } };
+  }
+
+  // Weight configuration
+  const W_HARDWARE = 0.4;
+  const W_UUID = 0.3;
+  const W_NETWORK = 0.2;
+  const W_BATTERY = 0.1;
+
+  let bestHwMatch = 0;
+  let bestUuidMatch = 0;
+  let bestNetworkMatch = 0;
+  let bestBatteryMatch = 0;
+
+  for (const reg of registrations) {
+    // Hardware fingerprint match
+    let hwScore = 0;
+    if (signals.hardwareFingerprint && reg.hardware_fingerprint) {
+      if (signals.hardwareFingerprint === reg.hardware_fingerprint) {
+        hwScore = 1.0;
+      } else if (signals.screenInfo && reg.screen_info && signals.screenInfo === reg.screen_info) {
+        // Screen matches but overall fingerprint changed (iOS update, browser change)
+        hwScore = 0.6;
+        flags.fingerprint_changed = true;
+      } else {
+        hwScore = 0;
+      }
+    }
+
+    // Software UUID match
+    let uuidScore = 0;
+    if (deviceUuid && reg.device_uuid) {
+      if (deviceUuid === reg.device_uuid) {
+        uuidScore = 1.0;
+      }
+    }
+
+    // Network (IP subnet) match — compare first 3 octets for IPv4
+    let networkScore = 0;
+    if (ipAddress && reg.ip_address) {
+      const currentSubnet = ipAddress.split('.').slice(0, 3).join('.');
+      const regSubnet = reg.ip_address.split('.').slice(0, 3).join('.');
+      if (currentSubnet === regSubnet) {
+        networkScore = 1.0;
+      } else if (ipAddress.split('.').slice(0, 2).join('.') === reg.ip_address.split('.').slice(0, 2).join('.')) {
+        networkScore = 0.5; // Same /16 subnet
+      }
+    }
+
+    // Battery level pattern — not compared against registration, just adds slight entropy
+    // We give a base score of 0.5 if battery data is available
+    let batteryScore = 0.5; // neutral baseline
+    if (signals.batteryLevel !== null && signals.batteryLevel !== undefined) {
+      batteryScore = 0.7; // Having battery data is slightly positive
+    }
+
+    bestHwMatch = Math.max(bestHwMatch, hwScore);
+    bestUuidMatch = Math.max(bestUuidMatch, uuidScore);
+    bestNetworkMatch = Math.max(bestNetworkMatch, networkScore);
+    bestBatteryMatch = Math.max(bestBatteryMatch, batteryScore);
+  }
+
+  // If UUID matches perfectly but hardware changed, it's likely the same device with updates
+  if (bestUuidMatch === 1.0 && bestHwMatch < 1.0 && bestHwMatch > 0) {
+    flags.fingerprint_changed = true;
+  }
+
+  matchDetails.hardware = bestHwMatch;
+  matchDetails.uuid = bestUuidMatch;
+  matchDetails.network = bestNetworkMatch;
+  matchDetails.battery = bestBatteryMatch;
+
+  const totalScore = (W_HARDWARE * bestHwMatch) + (W_UUID * bestUuidMatch) + (W_NETWORK * bestNetworkMatch) + (W_BATTERY * bestBatteryMatch);
+
+  return { score: Math.round(totalScore * 100) / 100, flags, matchDetails };
+}
+
+function upsertDeviceRegistration(
+  studentId: string,
+  deviceUuid: string,
+  signals: DeviceSignals,
+  ipAddress: string
+): void {
+  try {
+    const existing = db.prepare('SELECT id, times_seen FROM device_registrations WHERE student_id = ? AND device_uuid = ?').get(studentId, deviceUuid) as any;
+    const now = getBangkokISOString(new Date());
+
+    if (existing) {
+      db.prepare(`UPDATE device_registrations SET 
+        hardware_fingerprint = COALESCE(?, hardware_fingerprint),
+        screen_info = COALESCE(?, screen_info),
+        user_agent = COALESCE(?, user_agent),
+        ip_address = COALESCE(?, ip_address),
+        last_seen_at = ?,
+        times_seen = times_seen + 1
+        WHERE id = ?`
+      ).run(
+        signals.hardwareFingerprint || null,
+        signals.screenInfo || null,
+        signals.userAgent || null,
+        ipAddress || null,
+        now,
+        existing.id
+      );
+    } else {
+      db.prepare(`INSERT INTO device_registrations (student_id, device_uuid, hardware_fingerprint, screen_info, user_agent, ip_address, created_at, last_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        studentId,
+        deviceUuid,
+        signals.hardwareFingerprint || null,
+        signals.screenInfo || null,
+        signals.userAgent || null,
+        ipAddress || null,
+        now,
+        now
+      );
+    }
+  } catch (e) {
+    console.error('Error upserting device registration:', e);
+  }
+}
+
+// Logs rejected check-in attempts with similarity details for admin audit
+function logAttendanceRejection(
+  sessionId: number | null,
+  studentId: string,
+  prefix: string,
+  firstName: string,
+  lastName: string,
+  level: string,
+  year: string,
+  majorName: string,
+  majorCode: string,
+  room: string,
+  deviceUuid: string | null,
+  hwFingerprint: string | null,
+  ipAddress: string | null,
+  confidenceScore: number | null,
+  deviceFlags: Record<string, any> | null,
+  reason: string
+): void {
+  try {
+    const flagsStr = deviceFlags ? JSON.stringify(deviceFlags) : null;
+    db.prepare(`
+      INSERT INTO attendance_rejections (
+        session_id, student_id, prefix, first_name, last_name, level, year, major_name, major_code, room, 
+        device_uuid, hardware_fingerprint, ip_address, confidence_score, device_flags, rejection_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId, studentId, prefix || null, firstName || null, lastName || null, level || null, year || null, majorName || null, majorCode || null, room || null,
+      deviceUuid || null, hwFingerprint || null, ipAddress || null, confidenceScore, flagsStr, reason
+    );
+  } catch (e) {
+    console.error('Error logging attendance rejection:', e);
+  }
+}
+
 // Attendance CRUD
 app.post('/api/attendances', async (req, res) => {
-  const { session_id, prefix, first_name, last_name, student_id, level, year, major_name, major_code, room, device_uuid, latitude, longitude, bypass_gps } = req.body;
+  const { session_id, prefix, first_name, last_name, student_id, level, year, major_name, major_code, room, device_uuid, latitude, longitude, bypass_gps, device_signals } = req.body;
   
   if (!session_id || !prefix || !first_name || !last_name || !student_id || !level || !year || !major_name || !major_code || !room) {
     return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบถ้วน' });
@@ -869,20 +1064,6 @@ app.post('/api/attendances', async (req, res) => {
       return res.status(400).json({ error: 'คุณได้เช็กชื่อเข้าร่วมคาบกิจกรรมสัปดาห์นี้ไปแล้ว' });
     }
 
-    // Check duplicate check-in by device_uuid to prevent proxy check-ins
-    if (device_uuid) {
-      const deviceDuplicateStmt = db.prepare('SELECT student_id, first_name, last_name FROM attendances WHERE session_id = ? AND device_uuid = ?');
-      const existing = deviceDuplicateStmt.get(session_id, device_uuid) as any;
-      if (existing) {
-        return res.status(400).json({ 
-          error: `เครื่องนี้ได้ทำการเช็กชื่อกิจกรรมครั้งนี้ไปแล้ว (รหัสนักศึกษา: ${existing.student_id} - ${existing.first_name} ${existing.last_name}) ไม่สามารถใช้เช็กชื่อให้บุคคลอื่นได้` 
-        });
-      }
-    }
-
-    const studentLat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
-    const studentLng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
-
     // Get client IP address
     let ipAddress = '';
     const xForwardedFor = req.headers['x-forwarded-for'];
@@ -893,10 +1074,83 @@ app.post('/api/attendances', async (req, res) => {
       ipAddress = req.socket.remoteAddress || '';
     }
 
+    // --- Composite Device Identification ---
+    const signals: DeviceSignals = device_signals || {};
+    let confidenceScore: number | null = null;
+    let deviceFlags: Record<string, any> = {};
+    const hwFingerprint = signals.hardwareFingerprint || null;
+
+    if (session.require_device_fingerprint === 1) {
+      // Get student's registered devices
+      const registrations = db.prepare('SELECT * FROM device_registrations WHERE student_id = ? AND is_active = 1').all(student_id) as any[];
+
+      // Calculate confidence score
+      const confidence = calculateConfidenceScore(signals, device_uuid, ipAddress, registrations);
+      confidenceScore = confidence.score;
+      deviceFlags = confidence.flags;
+      deviceFlags.match_details = confidence.matchDetails;
+      deviceFlags.weights = { hardware: 0.4, uuid: 0.3, network: 0.2, battery: 0.1 };
+
+      // Check if hardware fingerprint was already used by ANOTHER student in this session
+      if (hwFingerprint) {
+        const hwDuplicateStmt = db.prepare('SELECT student_id, first_name, last_name FROM attendances WHERE session_id = ? AND hardware_fingerprint = ? AND student_id != ?');
+        const hwExisting = hwDuplicateStmt.get(session_id, hwFingerprint, student_id) as any;
+        if (hwExisting) {
+          // Same hardware fingerprint used by different student in same session
+          // Check if this is a genuine collision (e.g. same iPhone model) or proxy attempt
+          if (confidenceScore >= 0.7) {
+            // High confidence this is the same device — likely proxy check-in
+            const reason = `เครื่องนี้ได้ทำการเช็กชื่อกิจกรรมครั้งนี้ไปแล้ว (รหัสนักศึกษา: ${hwExisting.student_id} - ${hwExisting.first_name} ${hwExisting.last_name}) ไม่สามารถใช้เช็กชื่อให้บุคคลอื่นได้`;
+            logAttendanceRejection(session_id, student_id, prefix, first_name, last_name, level, year, major_name, major_code, room, device_uuid, hwFingerprint, ipAddress, confidenceScore, deviceFlags, reason);
+            return res.status(400).json({
+              error: reason
+            });
+          } else {
+            // Low confidence — possibly different devices with same fingerprint (iPhone collision)
+            // Allow but flag it
+            deviceFlags.possible_fingerprint_collision = true;
+          }
+        }
+      }
+
+      // Also check software UUID duplicate (original check, kept as secondary)
+      if (device_uuid) {
+        const deviceDuplicateStmt = db.prepare('SELECT student_id, first_name, last_name FROM attendances WHERE session_id = ? AND device_uuid = ? AND student_id != ?');
+        const existing = deviceDuplicateStmt.get(session_id, device_uuid, student_id) as any;
+        if (existing) {
+          const reason = `เครื่องนี้ได้ทำการเช็กชื่อกิจกรรมครั้งนี้ไปแล้ว (รหัสนักศึกษา: ${existing.student_id} - ${existing.first_name} ${existing.last_name}) ไม่สามารถใช้เช็กชื่อให้บุคคลอื่นได้`;
+          logAttendanceRejection(session_id, student_id, prefix, first_name, last_name, level, year, major_name, major_code, room, device_uuid, hwFingerprint, ipAddress, confidenceScore, deviceFlags, reason);
+          return res.status(400).json({
+            error: reason
+          });
+        }
+      }
+
+      // Register/update device for this student
+      upsertDeviceRegistration(student_id, device_uuid || `anon_${Date.now()}`, signals, ipAddress);
+
+    } else {
+      // Legacy mode: require_device_fingerprint === 0 — use original binary UUID check
+      if (device_uuid) {
+        const deviceDuplicateStmt = db.prepare('SELECT student_id, first_name, last_name FROM attendances WHERE session_id = ? AND device_uuid = ?');
+        const existing = deviceDuplicateStmt.get(session_id, device_uuid) as any;
+        if (existing) {
+          const reason = `เครื่องนี้ได้ทำการเช็กชื่อกิจกรรมครั้งนี้ไปแล้ว (รหัสนักศึกษา: ${existing.student_id} - ${existing.first_name} ${existing.last_name}) ไม่สามารถใช้เช็กชื่อให้บุคคลอื่นได้`;
+          logAttendanceRejection(session_id, student_id, prefix, first_name, last_name, level, year, major_name, major_code, room, device_uuid, hwFingerprint, ipAddress, confidenceScore, deviceFlags, reason);
+          return res.status(400).json({
+            error: reason
+          });
+        }
+      }
+    }
+
+    const studentLat = latitude !== undefined && latitude !== null && latitude !== '' ? parseFloat(latitude) : null;
+    const studentLng = longitude !== undefined && longitude !== null && longitude !== '' ? parseFloat(longitude) : null;
+
     // Insert attendance
     const insertStmt = db.prepare(`
-      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid, latitude, longitude, ip_address)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO attendances (session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid, latitude, longitude, ip_address, confidence_score, device_flags, hardware_fingerprint)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = insertStmt.run(
       session_id, 
@@ -917,7 +1171,10 @@ app.post('/api/attendances', async (req, res) => {
       device_uuid || null,
       studentLat,
       studentLng,
-      ipAddress || null
+      ipAddress || null,
+      confidenceScore,
+      Object.keys(deviceFlags).length > 0 ? JSON.stringify(deviceFlags) : null,
+      hwFingerprint
     );
     
     const attendanceRecord = {
@@ -936,13 +1193,26 @@ app.post('/api/attendances', async (req, res) => {
       level: level.trim(),
       year: year.trim(),
       major_name: major_name.trim(),
-      ip_address: ipAddress || null
+      ip_address: ipAddress || null,
+      confidence_score: confidenceScore,
+      device_flags: Object.keys(deviceFlags).length > 0 ? JSON.stringify(deviceFlags) : null
     };
 
     // Trigger async sync to Google Sheets
     syncToGoogleSheets(session, attendanceRecord);
 
-    res.json({ success: true, attendance: attendanceRecord });
+    // Return confidence warning if score is low
+    const response: any = { success: true, attendance: attendanceRecord };
+    if (confidenceScore !== null && confidenceScore < 0.8) {
+      response.confidence_warning = true;
+      response.confidence_score = confidenceScore;
+      if (confidenceScore < 0.5) {
+        response.confidence_level = 'low';
+      } else {
+        response.confidence_level = 'medium';
+      }
+    }
+    res.json(response);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to record attendance' });
@@ -950,15 +1220,155 @@ app.post('/api/attendances', async (req, res) => {
 });
 
 // Check if a specific device has already checked in for a session
+// Uses composite check: first by device_uuid, then by hardware_fingerprint
 app.get('/api/attendances/session/:sessionId/device/:deviceUuid', (req, res) => {
   const { sessionId, deviceUuid } = req.params;
+  const hwFingerprint = req.query.hw as string | undefined;
   try {
-    const stmt = db.prepare('SELECT student_id, prefix, first_name, last_name, level, year, major_code, major_name, room, attended_at FROM attendances WHERE session_id = ? AND device_uuid = ?');
-    const attendance = stmt.get(sessionId, deviceUuid) as any;
+    // First check by software UUID
+    let attendance = db.prepare('SELECT student_id, prefix, first_name, last_name, level, year, major_code, major_name, room, attended_at FROM attendances WHERE session_id = ? AND device_uuid = ?').get(sessionId, deviceUuid) as any;
+
+    // If not found by UUID and hardware fingerprint is provided, check by hardware fingerprint
+    if (!attendance && hwFingerprint) {
+      attendance = db.prepare('SELECT student_id, prefix, first_name, last_name, level, year, major_code, major_name, room, attended_at FROM attendances WHERE session_id = ? AND hardware_fingerprint = ?').get(sessionId, hwFingerprint) as any;
+    }
+
     res.json(attendance || null);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Failed to check device attendance' });
+  }
+});
+
+// Get device registrations for a specific student (admin only)
+app.get('/api/device-registrations/:studentId', (req, res) => {
+  const { studentId } = req.params;
+  try {
+    const registrations = db.prepare('SELECT * FROM device_registrations WHERE student_id = ? ORDER BY last_seen_at DESC').all(studentId);
+    res.json(registrations);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch device registrations' });
+  }
+});
+
+// Delete a device registration (admin only)
+app.delete('/api/device-registrations/:id', (req, res) => {
+  const { id } = req.params;
+  try {
+    db.prepare('DELETE FROM device_registrations WHERE id = ?').run(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to delete device registration' });
+  }
+});
+
+// Get rejected check-in attempts (admin only)
+app.get('/api/attendance-rejections', (req, res) => {
+  try {
+    const { academic_year, term } = getActiveSettings();
+    const rejections = db.prepare(`
+      SELECT r.*, s.title as session_title, s.week_number 
+      FROM attendance_rejections r
+      JOIN sessions s ON r.session_id = s.id
+      WHERE s.academic_year = ? AND s.term = ?
+      ORDER BY r.rejected_at DESC
+    `).all(academic_year, term);
+    res.json(rejections);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to fetch attendance rejections' });
+  }
+});
+
+// Log background check-in duplicate attempt silently (no user interface intervention)
+app.post('/api/attendance-rejections/log-attempt', (req, res) => {
+  const { session_id, device_uuid, hardware_fingerprint, stored_student_id, device_signals } = req.body;
+
+  try {
+    // 1. Get client IP address
+    let ipAddress = '';
+    const xForwardedFor = req.headers['x-forwarded-for'];
+    if (xForwardedFor) {
+      const list = typeof xForwardedFor === 'string' ? xForwardedFor.split(',') : xForwardedFor[0].split(',');
+      ipAddress = list[0].trim();
+    } else {
+      ipAddress = req.socket.remoteAddress || '';
+    }
+
+    // 2. Query who has already checked in on this device in this session
+    let existingAttendance = null;
+    if (device_uuid) {
+      existingAttendance = db.prepare('SELECT student_id, prefix, first_name, last_name FROM attendances WHERE session_id = ? AND device_uuid = ?').get(session_id, device_uuid) as any;
+    }
+    if (!existingAttendance && hardware_fingerprint) {
+      existingAttendance = db.prepare('SELECT student_id, prefix, first_name, last_name FROM attendances WHERE session_id = ? AND hardware_fingerprint = ?').get(session_id, hardware_fingerprint) as any;
+    }
+
+    // If no duplicate checked-in on this device, it's a normal load, nothing to log as rejection
+    if (!existingAttendance) {
+      return res.json({ success: true, logged: false });
+    }
+
+    // If the student currently loading is the SAME student who checked in:
+    // This is just page reload, not a spoof attempt. Do not log.
+    if (stored_student_id && stored_student_id === existingAttendance.student_id) {
+      return res.json({ success: true, logged: false });
+    }
+
+    // This is a duplicate attempt (either a different student, or someone with a clean browser)
+    // 3. Look up current student's information if stored_student_id is provided
+    let currentStudent = { prefix: null, first_name: 'ผู้ใช้ปริศนา (Anonymous)', last_name: '', level: null, year: null, major_name: null, major_code: null, room: null };
+    if (stored_student_id) {
+      const studentDetails = db.prepare('SELECT prefix, first_name, last_name, level, year, major_name, major_code, room FROM students WHERE student_id = ?').get(stored_student_id) as any;
+      if (studentDetails) {
+        currentStudent = studentDetails;
+      }
+    }
+
+    // 4. Calculate confidence scoring compared to the student who already checked in
+    const signals: DeviceSignals = device_signals || {};
+    const registrations = db.prepare('SELECT * FROM device_registrations WHERE student_id = ? AND is_active = 1').all(existingAttendance.student_id) as any[];
+
+    const confidence = calculateConfidenceScore(signals, device_uuid, ipAddress, registrations);
+    const confidenceScore = confidence.score;
+    const deviceFlags: Record<string, any> = { ...confidence.flags };
+    deviceFlags.match_details = confidence.matchDetails;
+    deviceFlags.weights = { hardware: 0.4, uuid: 0.3, network: 0.2, battery: 0.1 };
+
+    // 5. Construct rejection reason
+    let reason = '';
+    if (stored_student_id) {
+      reason = `ผู้ใช้งานรหัส ${stored_student_id} (${currentStudent.prefix || ''}${currentStudent.first_name || ''} ${currentStudent.last_name || ''}) พยายามเข้าหน้าเช็กชื่อ บนเครื่องที่ถูกใช้เช็กชื่อไปก่อนหน้านี้โดยรหัส ${existingAttendance.student_id} (${existingAttendance.prefix || ''}${existingAttendance.first_name || ''} ${existingAttendance.last_name || ''})`;
+    } else {
+      reason = `ผู้ใช้นิรนาม/ล้างแคช พยายามเข้าหน้าเช็กชื่อ บนเครื่องที่ถูกใช้เช็กชื่อไปก่อนหน้านี้โดยรหัส ${existingAttendance.student_id} (${existingAttendance.prefix || ''}${existingAttendance.first_name || ''} ${existingAttendance.last_name || ''})`;
+    }
+
+    // 6. Log it into database
+    logAttendanceRejection(
+      session_id,
+      stored_student_id || 'UNKNOWN',
+      currentStudent.prefix || '',
+      currentStudent.first_name || '',
+      currentStudent.last_name || '',
+      currentStudent.level || '',
+      currentStudent.year || '',
+      currentStudent.major_name || '',
+      currentStudent.major_code || '',
+      currentStudent.room || '',
+      device_uuid || null,
+      hardware_fingerprint || null,
+      ipAddress || null,
+      confidenceScore,
+      deviceFlags,
+      reason
+    );
+
+    res.json({ success: true, logged: true });
+  } catch (error) {
+    console.error('Error logging background rejection attempt:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 

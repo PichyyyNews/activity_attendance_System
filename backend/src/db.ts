@@ -145,9 +145,50 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS device_registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL,
+    device_uuid TEXT NOT NULL,
+    hardware_fingerprint TEXT,
+    screen_info TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    times_seen INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    UNIQUE(student_id, device_uuid)
+  );
+
+  CREATE TABLE IF NOT EXISTS attendance_rejections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER,
+    student_id TEXT NOT NULL,
+    prefix TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    level TEXT,
+    year TEXT,
+    major_name TEXT,
+    major_code TEXT,
+    room TEXT,
+    device_uuid TEXT,
+    hardware_fingerprint TEXT,
+    ip_address TEXT,
+    confidence_score REAL,
+    device_flags TEXT,
+    rejection_reason TEXT NOT NULL,
+    rejected_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_students_student_id ON students (student_id);
   CREATE INDEX IF NOT EXISTS idx_attendances_session_student ON attendances (session_id, student_id);
   CREATE INDEX IF NOT EXISTS idx_attendances_student_id ON attendances (student_id);
+  CREATE INDEX IF NOT EXISTS idx_device_reg_student ON device_registrations (student_id);
+  CREATE INDEX IF NOT EXISTS idx_device_reg_hw ON device_registrations (hardware_fingerprint);
+  CREATE INDEX IF NOT EXISTS idx_attendances_device_uuid ON attendances (device_uuid);
+  CREATE INDEX IF NOT EXISTS idx_rejections_student_id ON attendance_rejections (student_id);
+  CREATE INDEX IF NOT EXISTS idx_rejections_session_id ON attendance_rejections (session_id);
 `);
 
 // Safe migrations for settings columns
@@ -486,6 +527,34 @@ try {
   }
 } catch (error) {
   console.error('Error seeding academic_years:', error);
+}
+
+// Safe migrations for device_registrations and new attendances columns
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN confidence_score REAL DEFAULT NULL;');
+  console.log('Database Migration: Added confidence_score column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.confidence_score):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN device_flags TEXT DEFAULT NULL;');
+  console.log('Database Migration: Added device_flags column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.device_flags):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE attendances ADD COLUMN hardware_fingerprint TEXT DEFAULT NULL;');
+  console.log('Database Migration: Added hardware_fingerprint column to attendances table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (attendances.hardware_fingerprint):', error);
+  }
 }
 
 export default db;
