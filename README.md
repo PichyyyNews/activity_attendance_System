@@ -8,14 +8,17 @@ A web-based attendance checking system for activity classes, designed for simpli
 - **User Interface (Mobile-First)**: Students scan a QR code and fill out a responsive, easy-to-use form (Name, Student ID, Major).
 - **User Dashboard**: Students can track their attendance history and view missed classes.
 - **Dual Storage**: Automatically saves attendance data locally to an SQLite database and syncs to Google Sheets in real-time.
+- **Composite Device Fingerprinting**: Advanced composite checking combining Hardware properties (GPU, canvas, screen), Software browser UUID, Network IP subnet, and Battery characteristics. Applies weighted confidence scoring (40/30/20/10) to distinguish genuine devices from collision patterns (such as identical iPhones) and proxy attempts.
+- **Background Rejection Auditing**: Detects and logs duplicate check-in attempts and unauthorized page loads in the background, keeping track of detailed match breakdowns (Hardware, UUID, network, battery) for administrators to review.
+- **GPS Geo-fencing**: Ensures check-ins occur within a specific range of the classroom/activity location, with toggleable administrative bypass rules.
 - **Dockerized**: Fully containerized with Docker Compose for easy deployment.
 
 ## Tech Stack
 
 - **Frontend**: React (TypeScript), Vite, Tailwind CSS (100% Responsive)
-- **Backend**: Node.js, Express (TypeScript)
+- **Backend**: Node.js, Express (TypeScript), SQLite3 (with automated migrations)
 - **Database**: SQLite (Local), Google Sheets API (Cloud Sync)
-- **Infrastructure**: Docker, Docker Compose
+- **Infrastructure**: Docker, Docker Compose, AWS EC2 (t3.micro) deployment via Local Build Image Transfer
 
 ## Prerequisites
 
