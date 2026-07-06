@@ -1768,8 +1768,17 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
     const room = req.query.room as string || '';
     const gender = req.query.gender as string || '';
 
+    const excludeLevel = req.query.excludeLevel === 'true';
+    const excludeClassYear = req.query.excludeClassYear === 'true';
+    const excludeMajorCode = req.query.excludeMajorCode === 'true';
+    const excludeRoom = req.query.excludeRoom === 'true';
+    const excludeGender = req.query.excludeGender === 'true';
+
+    const excludedGroupsStr = req.query.excludedGroups as string || '';
+    const excludedGroupsList = excludedGroupsStr ? excludedGroupsStr.split(',') : [];
+
     // 1. Fetch all sessions for selection dropdown (filtered by active semester)
-    const allSessions = db.prepare('SELECT id, week_number, title, date, is_active, close_at FROM sessions WHERE academic_year = ? AND term = ? ORDER BY week_number ASC').all(academic_year, term) as any[];
+    const allSessions = db.prepare('SELECT id, week_number, title, date, is_active, close_at, latitude, longitude, radius FROM sessions WHERE academic_year = ? AND term = ? ORDER BY week_number ASC').all(academic_year, term) as any[];
 
     if (allSessions.length === 0) {
       return res.json({
@@ -1783,6 +1792,7 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
         absentList: [],
         weeklyTrend: [],
         roomStats: [],
+        allGroups: [],
         genderStats: {
           male: { expected: 0, present: 0, absent: 0, rate: 0 },
           female: { expected: 0, present: 0, absent: 0, rate: 0 }
@@ -1812,29 +1822,43 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
     const baseFilterParams: any[] = [];
 
     if (level) {
-      baseFilterSql += ' AND level = ?';
+      baseFilterSql += excludeLevel ? ' AND level != ?' : ' AND level = ?';
       baseFilterParams.push(level);
     }
     if (classYear) {
-      baseFilterSql += ' AND year = ?';
+      baseFilterSql += excludeClassYear ? ' AND year != ?' : ' AND year = ?';
       baseFilterParams.push(classYear);
     }
     if (majorCode) {
-      baseFilterSql += ' AND major_code = ?';
+      baseFilterSql += excludeMajorCode ? ' AND major_code != ?' : ' AND major_code = ?';
       baseFilterParams.push(majorCode);
     }
     if (room) {
-      baseFilterSql += ' AND room = ?';
+      baseFilterSql += excludeRoom ? ' AND room != ?' : ' AND room = ?';
       baseFilterParams.push(room);
+    }
+
+    if (excludedGroupsList.length > 0) {
+      const placeholders = excludedGroupsList.map(() => '?').join(',');
+      baseFilterSql += ` AND (year || major_code || room) NOT IN (${placeholders})`;
+      baseFilterParams.push(...excludedGroupsList);
     }
 
     // Full filters (including gender filter)
     let filterSql = baseFilterSql;
     const filterParams = [...baseFilterParams];
     if (gender === 'male') {
-      filterSql += " AND (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
+      if (excludeGender) {
+        filterSql += " AND NOT (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
+      } else {
+        filterSql += " AND (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
+      }
     } else if (gender === 'female') {
-      filterSql += " AND (prefix != 'นาย' AND prefix != 'เด็กชาย' AND prefix != 'ด.ช.' AND prefix != 'ด.ช')";
+      if (excludeGender) {
+        filterSql += " AND NOT (prefix != 'นาย' AND prefix != 'เด็กชาย' AND prefix != 'ด.ช.' AND prefix != 'ด.ช')";
+      } else {
+        filterSql += " AND (prefix != 'นาย' AND prefix != 'เด็กชาย' AND prefix != 'ด.ช.' AND prefix != 'ด.ช')";
+      }
     }
 
     // 2. Fetch expected students from roster (with full filters)
@@ -1933,9 +1957,17 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
       const gFilterParams = [g.level, g.year, g.major_code, g.room];
 
       if (gender === 'male') {
-        gFilterSql += " AND (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
+        if (excludeGender) {
+          gFilterSql += " AND NOT (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
+        } else {
+          gFilterSql += " AND (prefix = 'นาย' OR prefix = 'เด็กชาย' OR prefix = 'ด.ช.' OR prefix = 'ด.ช')";
+        }
       } else if (gender === 'female') {
-        gFilterSql += " AND (prefix != 'นาย' AND prefix != 'เด็กชาย' AND prefix != 'ด.ช.' AND prefix != 'ด.ช')";
+        if (excludeGender) {
+          gFilterSql += " AND NOT (prefix != 'นาย' AND prefix != 'เด็กชาย' AND prefix != 'ด.ช.' AND prefix != 'ด.ช')";
+        } else {
+          gFilterSql += " AND (prefix != 'นาย' AND prefix != 'เด็กชาย' AND prefix != 'ด.ช.' AND prefix != 'ด.ช')";
+        }
       }
 
       let gPresentCount = 0;
@@ -2073,6 +2105,8 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
       }
     };
 
+    const filteredRoomStats = roomStats.filter(stat => !excludedGroupsList.includes(stat.room));
+
     res.json({
       sessions: allSessions,
       selectedSessionId: targetSessionId,
@@ -2083,7 +2117,12 @@ app.get('/api/admin/dashboard-stats', (req, res) => {
       presentList,
       absentList,
       weeklyTrend,
-      roomStats,
+      roomStats: filteredRoomStats,
+      allGroups: classGroups.map(g => ({
+        code: `${g.year}${g.major_code}${g.room}`,
+        label: `${g.year}${g.major_code}${g.room} (${g.level})`,
+        level: g.level
+      })),
       scanDistribution,
       genderStats
     });
@@ -2472,15 +2511,66 @@ app.post('/api/backup/import', importUpload.single('backup_file'), (req, res) =>
       // Sessions
       if (Array.isArray(data.sessions)) {
         db.prepare('DELETE FROM sessions').run();
-        const ins = db.prepare('INSERT OR REPLACE INTO sessions (id,week_number,title,date,is_active,close_at,created_at,academic_year,term,token) VALUES (?,?,?,?,?,?,?,?,?,?)');
-        for (const r of data.sessions) ins.run(r.id,r.week_number,r.title,r.date,r.is_active,r.close_at,r.created_at,r.academic_year,r.term,r.token||null);
+        const ins = db.prepare(`
+          INSERT OR REPLACE INTO sessions (
+            id, week_number, title, date, is_active, close_at, created_at, academic_year, term, token, latitude, longitude, radius, require_device_fingerprint
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const r of data.sessions) {
+          ins.run(
+            r.id,
+            r.week_number,
+            r.title,
+            r.date,
+            r.is_active !== undefined ? r.is_active : 1,
+            r.close_at || null,
+            r.created_at,
+            r.academic_year,
+            r.term,
+            r.token || null,
+            r.latitude !== undefined ? r.latitude : null,
+            r.longitude !== undefined ? r.longitude : null,
+            r.radius !== undefined ? r.radius : 500,
+            r.require_device_fingerprint !== undefined ? r.require_device_fingerprint : 0
+          );
+        }
         importedCounts['sessions'] = data.sessions.length;
       }
       // Attendances
       if (Array.isArray(data.attendances)) {
         db.prepare('DELETE FROM attendances').run();
-        const ins = db.prepare('INSERT OR REPLACE INTO attendances (id,session_id,prefix,first_name,last_name,student_id,major,class_year,major_code,room,attended_at,academic_year,term,level,year,major_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-        for (const r of data.attendances) ins.run(r.id,r.session_id,r.prefix,r.first_name,r.last_name,r.student_id,r.major,r.class_year,r.major_code,r.room,r.attended_at,r.academic_year,r.term,r.level,r.year,r.major_name);
+        const ins = db.prepare(`
+          INSERT OR REPLACE INTO attendances (
+            id, session_id, prefix, first_name, last_name, student_id, major, class_year, major_code, room, attended_at, academic_year, term, level, year, major_name, device_uuid, latitude, longitude, ip_address, confidence_score, device_flags, hardware_fingerprint
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const r of data.attendances) {
+          ins.run(
+            r.id,
+            r.session_id,
+            r.prefix || null,
+            r.first_name,
+            r.last_name,
+            r.student_id,
+            r.major || null,
+            r.class_year || null,
+            r.major_code || null,
+            r.room || null,
+            r.attended_at,
+            r.academic_year,
+            r.term,
+            r.level || null,
+            r.year || null,
+            r.major_name || null,
+            r.device_uuid || null,
+            r.latitude !== undefined ? r.latitude : null,
+            r.longitude !== undefined ? r.longitude : null,
+            r.ip_address || null,
+            r.confidence_score !== undefined ? r.confidence_score : null,
+            r.device_flags || null,
+            r.hardware_fingerprint || null
+          );
+        }
         importedCounts['attendances'] = data.attendances.length;
       }
       // Students
@@ -2512,7 +2602,14 @@ app.post('/api/backup/import', importUpload.single('backup_file'), (req, res) =>
         importedCounts['attendance_remarks'] = data.attendance_remarks.length;
       }
     });
-    importTx();
+    
+    db.pragma('foreign_keys = OFF');
+    try {
+      importTx();
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
+
     logBackupAction('import', 'IMPORT_DATA', `นำเข้าข้อมูลจากไฟล์ ${req.file.originalname}`, { filename: req.file.originalname, original_exported_at: payload.exported_at, imported_counts: importedCounts });
     res.json({ success: true, imported_counts: importedCounts });
   } catch (error: any) {
@@ -2640,7 +2737,12 @@ app.post('/api/backup/rollback/:snapshotId', async (req, res) => {
         } catch (e) { console.error(`Rollback table ${table} error:`, e); }
       }
     });
-    rollbackTx();
+    db.pragma('foreign_keys = OFF');
+    try {
+      rollbackTx();
+    } finally {
+      db.pragma('foreign_keys = ON');
+    }
     snapDb.close();
     const restoredCounts = getTableRecordCounts();
     logBackupAction('rollback', 'ROLLBACK_DATA', `คืนข้อมูลจาก snapshot: ${meta.label}`, {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { 
   Calendar, 
@@ -17,8 +17,68 @@ import {
   GraduationCap,
   LayoutDashboard,
   Maximize2,
-  Minimize2
+  Minimize2,
+  MapPin,
 } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+const safeLocalStorage = {
+  getItem: (key: string): string => {
+    try {
+      return localStorage.getItem(key) || '';
+    } catch (e) {
+      console.warn('localStorage getItem blocked', e);
+      return '';
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn('localStorage setItem blocked', e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn('localStorage removeItem blocked', e);
+    }
+  }
+};
+
+// Fix Leaflet default marker icon issue in Vite/React
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
+
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  BarChart,
+  Bar,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ReferenceLine,
+  LabelList,
+  Cell,
+  PieChart as RechartsPieChart,
+  Pie,
+} from 'recharts';
+
 
 interface Session {
   id: number;
@@ -27,6 +87,9 @@ interface Session {
   date: string;
   is_active: number;
   close_at: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  radius?: number | null;
 }
 
 interface StudentRecord {
@@ -87,6 +150,7 @@ interface DashboardStats {
     male: GenderStatDetail;
     female: GenderStatDetail;
   };
+  allGroups?: Array<{ code: string; label: string; level: string }>;
 }
 
 function getAggregatedScanDistribution(rawDist: ScanTimeData[] | undefined, volume: number): ScanTimeData[] {
@@ -134,14 +198,225 @@ function getAggregatedScanDistribution(rawDist: ScanTimeData[] | undefined, volu
     });
 }
 
+interface AttendanceMapProps {
+  presentList: any[];
+  sessionLocation?: { latitude?: number | null; longitude?: number | null; radius?: number | null } | null;
+  resolution: 5 | 10 | 50 | 100 | 150;
+}
+
+function AttendanceMap({ presentList, sessionLocation, resolution }: AttendanceMapProps) {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const layerGroupRef = useRef<L.LayerGroup | null>(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    // Initialize map with default center (Bangkok) and zoom
+    const map = L.map(mapContainerRef.current, {
+      center: [13.7563, 100.5018],
+      zoom: 12,
+      zoomControl: true,
+      scrollWheelZoom: true,
+    });
+
+    // Add OpenStreetMap tile layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    mapRef.current = map;
+    layerGroupRef.current = L.layerGroup().addTo(map);
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      layerGroupRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const layerGroup = layerGroupRef.current;
+    if (!map || !layerGroup) return;
+
+    // Clear previous drawings
+    layerGroup.clearLayers();
+
+    // 1. Filter valid check-ins (ignore coordinates near 0/Null Island)
+    const validCheckins = presentList.filter(
+      item => item.latitude !== null && item.longitude !== null &&
+              !isNaN(Number(item.latitude)) && !isNaN(Number(item.longitude)) &&
+              Math.abs(Number(item.latitude)) > 0.1 && Math.abs(Number(item.longitude)) > 0.1
+    );
+
+    const step = resolution * 0.000009; // degrees per meter approx
+    const grid: Record<string, { lat: number; lng: number; count: number; studentNames: string[] }> = {};
+
+    validCheckins.forEach(item => {
+      const lat = Number(item.latitude);
+      const lng = Number(item.longitude);
+      const cellLat = Math.floor(lat / step) * step + step / 2;
+      const cellLng = Math.floor(lng / step) * step + step / 2;
+      const key = `${cellLat.toFixed(6)},${cellLng.toFixed(6)}`;
+
+      if (!grid[key]) {
+        grid[key] = { lat: cellLat, lng: cellLng, count: 0, studentNames: [] };
+      }
+      grid[key].count++;
+      grid[key].studentNames.push(`${item.first_name} ${item.last_name} (${item.student_id})`);
+    });
+
+    const cells = Object.values(grid);
+
+    // 2. Find peak coordinate (max density cell)
+    let peakCell = cells.reduce((max, c) => (c.count > max.count ? c : max), cells[0] || null);
+
+    // 3. Set map view based on peak cell or session location or fallback
+    let focusLatLng: L.LatLngExpression = [13.7563, 100.5018]; // Default Bangkok
+    let hasFocus = false;
+
+    if (peakCell) {
+      focusLatLng = [peakCell.lat, peakCell.lng];
+      hasFocus = true;
+    } else if (sessionLocation && sessionLocation.latitude !== null && sessionLocation.longitude !== null && Math.abs(Number(sessionLocation.latitude)) > 0.1) {
+      focusLatLng = [Number(sessionLocation.latitude), Number(sessionLocation.longitude)];
+      hasFocus = true;
+    } else if (validCheckins.length > 0) {
+      focusLatLng = [Number(validCheckins[0].latitude), Number(validCheckins[0].longitude)];
+      hasFocus = true;
+    }
+
+    // Recalculate size and center map after layout stabilizes (in single combined timer)
+    const mapTimer = setTimeout(() => {
+      map.invalidateSize();
+      if (hasFocus) {
+        map.setView(focusLatLng, 17); // Detail level zoom
+      } else {
+        map.setView(focusLatLng, 12);
+      }
+    }, 250);
+
+    // 4. Draw session Geofencing zone circle if available
+    if (sessionLocation && sessionLocation.latitude !== null && sessionLocation.longitude !== null) {
+      const sessionLatLng: L.LatLngExpression = [Number(sessionLocation.latitude), Number(sessionLocation.longitude)];
+      
+      // Draw center marker
+      L.marker(sessionLatLng)
+        .bindPopup(`<b>จุดจัดกิจกรรม/เรียน</b><br/>รัศมีเช็กชื่อ: ${sessionLocation.radius || 500} เมตร`)
+        .addTo(layerGroup);
+
+      // Draw radius circle
+      L.circle(sessionLatLng, {
+        radius: sessionLocation.radius || 500,
+        color: '#10B981',
+        fillColor: '#10B981',
+        fillOpacity: 0.08,
+        dashArray: '5, 5',
+        weight: 1.5
+      }).addTo(layerGroup);
+    }
+
+    // 5. Draw grid cells heatmap
+    if (cells.length > 0) {
+      const maxCount = Math.max(...cells.map(c => c.count));
+
+      cells.forEach(cell => {
+        const ratio = cell.count / maxCount;
+        
+        // Colors mapping: low (green) -> medium (yellow) -> high (orange) -> very high (red)
+        let color = '#10B981'; // green
+        if (ratio > 0.75) color = '#ef4444'; // red
+        else if (ratio > 0.5) color = '#f97316'; // orange
+        else if (ratio > 0.25) color = '#fbbf24'; // yellow-orange
+
+        const halfStep = step / 2;
+        const bounds: L.LatLngBoundsExpression = [
+          [cell.lat - halfStep, cell.lng - halfStep],
+          [cell.lat + halfStep, cell.lng + halfStep]
+        ];
+
+        const rect = L.rectangle(bounds, {
+          color: color,
+          weight: 1,
+          opacity: 0.4,
+          fillColor: color,
+          fillOpacity: 0.55,
+        });
+
+        const tooltipContent = `
+          <div style="font-family: inherit; font-size: 11px; padding: 2px 4px;">
+            <strong>ขอบเขตรัศมี ${resolution}ม.</strong><br/>
+            📍 พิกัดกลาง: ${cell.lat.toFixed(5)}, ${cell.lng.toFixed(5)}<br/>
+            👤 สแกนเช็กชื่อ: <span style="font-weight:bold; color:${color}">${cell.count} คน-ครั้ง</span>
+          </div>
+        `;
+        rect.bindTooltip(tooltipContent, { sticky: true });
+
+        const namesList = cell.studentNames.slice(0, 10).map(name => `• ${name}`).join('<br/>');
+        const moreCount = cell.studentNames.length - 10;
+        const popupContent = `
+          <div style="font-family: inherit; font-size: 11px;">
+            <b>ขอบเขตเช็กชื่อหนาแน่น (${resolution} ม.)</b><br/>
+            จำนวนเช็กชื่อ: <b>${cell.count} คน-ครั้ง</b><br/>
+            <hr style="margin:6px 0; border:0; border-top:1px solid #ddd;"/>
+            <b>รายชื่อผู้เช็กชื่อในโซนนี้:</b><br/>
+            ${namesList}
+            ${moreCount > 0 ? `<br/><i>...และคนอื่นๆ อีก ${moreCount} คน</i>` : ''}
+          </div>
+        `;
+        rect.bindPopup(popupContent);
+
+        rect.addTo(layerGroup);
+      });
+    }
+
+    return () => {
+      clearTimeout(mapTimer);
+    };
+  }, [presentList, resolution, sessionLocation]);
+
+  return (
+    <div 
+      ref={mapContainerRef} 
+      style={{ height: 350, width: '100%', borderRadius: 8, zIndex: 1, position: 'relative' }} 
+      className="border border-hairline overflow-hidden"
+    />
+  );
+}
+
 export default function AdminDashboard() {
   // Filter States
-  const [selectedSessionId, setSelectedSessionId] = useState<number | 'all' | ''>('');
-  const [level, setLevel] = useState<string>('');
-  const [classYear, setClassYear] = useState<string>('');
-  const [majorCode, setMajorCode] = useState<string>('');
-  const [room, setRoom] = useState<string>('');
-  const [gender, setGender] = useState<string>('');
+  const [selectedSessionId, setSelectedSessionId] = useState<number | 'all' | ''>(() => {
+    const saved = safeLocalStorage.getItem('filter_sessionId');
+    if (saved === 'all') return 'all';
+    return saved ? Number(saved) : '';
+  });
+  const [level, setLevel] = useState<string>(() => safeLocalStorage.getItem('filter_level') || '');
+  const [classYear, setClassYear] = useState<string>(() => safeLocalStorage.getItem('filter_classYear') || '');
+  const [majorCode, setMajorCode] = useState<string>(() => safeLocalStorage.getItem('filter_majorCode') || '');
+  const [room, setRoom] = useState<string>(() => safeLocalStorage.getItem('filter_room') || '');
+  const [gender, setGender] = useState<string>(() => safeLocalStorage.getItem('filter_gender') || '');
+
+  // Exclusion States
+  const [excludeLevel, setExcludeLevel] = useState<boolean>(() => safeLocalStorage.getItem('filter_excludeLevel') === 'true');
+  const [excludeClassYear, setExcludeClassYear] = useState<boolean>(() => safeLocalStorage.getItem('filter_excludeClassYear') === 'true');
+  const [excludeMajorCode, setExcludeMajorCode] = useState<boolean>(() => safeLocalStorage.getItem('filter_excludeMajorCode') === 'true');
+  const [excludeRoom, setExcludeRoom] = useState<boolean>(() => safeLocalStorage.getItem('filter_excludeRoom') === 'true');
+  const [excludeGender, setExcludeGender] = useState<boolean>(() => safeLocalStorage.getItem('filter_excludeGender') === 'true');
+  const [excludedGroups, setExcludedGroups] = useState<string[]>(() => {
+    const saved = safeLocalStorage.getItem('filter_excludedGroups');
+    return saved ? saved.split(',').filter(Boolean) : [];
+  });
+  const [filterTab, setFilterTab] = useState<'filter' | 'exclude'>('filter');
+
+  const toggleGroupExclusion = (groupCode: string) => {
+    setExcludedGroups(prev => 
+      prev.includes(groupCode)
+        ? prev.filter(c => c !== groupCode)
+        : [...prev, groupCode]
+    );
+  };
 
   // Dropdown Master Data
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -158,6 +433,10 @@ export default function AdminDashboard() {
   // Tab & Local search states
   const [activeTab, setActiveTab] = useState<'present' | 'absent'>('present');
   const [localSearch, setLocalSearch] = useState('');
+  const [mapResolution, setMapResolution] = useState<5 | 10 | 50 | 100 | 150>(() => {
+    const saved = safeLocalStorage.getItem('filter_mapResolution');
+    return saved ? Number(saved) as any : 50;
+  });
   
   // Custom Confirm Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -190,23 +469,19 @@ export default function AdminDashboard() {
   } | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Hover states for interactive SVG charts
-  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
+
+  // Trend limit slider state
   const [trendLimit, setTrendLimit] = useState<number>(6);
-  const [hoveredRoomIndex, setHoveredRoomIndex] = useState<number | null>(null);
-  const [hoveredScanIndex, setHoveredScanIndex] = useState<number | null>(null);
 
   // Tab states for ratio display
   const [ratioTab, setRatioTab] = useState<'summary' | 'year' | 'major' | 'room' | 'gender'>('summary');
 
-  // Expanded chart state (null = all normal, 1-4 = that chart expands to full width in its row)
-  const [expandedChart, setExpandedChart] = useState<number | null>(null);
+  // Expanded chart state — แยกต่างหากต่อ row เพื่อป้องกัน row อื่นได้รับผลกระทบ
+  const [expandedRow1, setExpandedRow1] = useState<1 | 2 | null>(null);
+  const [expandedRow2, setExpandedRow2] = useState<3 | 4 | null>(null);
   const [scanVolume, setScanVolume] = useState<number>(5);
-
-  // Dynamic viewBox widths: expanded chart gets 2x width so it "opens up" plot area instead of zooming
-  const cw1 = expandedChart === 1 ? 1000 : 500;
-  const cw3 = expandedChart === 3 ? 1000 : 500;
-  const cw4 = expandedChart === 4 ? 1000 : 500;
+  // Tab for Chart 3+5 combined: 'bar' | 'radar'
+  const [roomChartTab, setRoomChartTab] = useState<'bar' | 'radar'>('bar');
 
   const getGender = (prefix: string) => {
     const p = prefix || '';
@@ -406,7 +681,13 @@ export default function AdminDashboard() {
           classYear: classYear || undefined,
           majorCode: majorCode || undefined,
           room: room || undefined,
-          gender: gender || undefined
+          gender: gender || undefined,
+          excludeLevel: excludeLevel ? 'true' : undefined,
+          excludeClassYear: excludeClassYear ? 'true' : undefined,
+          excludeMajorCode: excludeMajorCode ? 'true' : undefined,
+          excludeRoom: excludeRoom ? 'true' : undefined,
+          excludeGender: excludeGender ? 'true' : undefined,
+          excludedGroups: excludedGroups.length > 0 ? excludedGroups.join(',') : undefined
         }
       });
       if (res.data) {
@@ -421,7 +702,7 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSessionId, level, classYear, majorCode, room, gender]);
+  }, [selectedSessionId, level, classYear, majorCode, room, gender, excludeLevel, excludeClassYear, excludeMajorCode, excludeRoom, excludeGender, excludedGroups]);
 
   useEffect(() => {
     fetchMajors();
@@ -431,6 +712,23 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchDashboardStats();
   }, [fetchDashboardStats]);
+
+  // Persist filter states in safeLocalStorage
+  useEffect(() => {
+    safeLocalStorage.setItem('filter_sessionId', selectedSessionId.toString());
+    safeLocalStorage.setItem('filter_level', level);
+    safeLocalStorage.setItem('filter_classYear', classYear);
+    safeLocalStorage.setItem('filter_majorCode', majorCode);
+    safeLocalStorage.setItem('filter_room', room);
+    safeLocalStorage.setItem('filter_gender', gender);
+    safeLocalStorage.setItem('filter_excludeLevel', excludeLevel.toString());
+    safeLocalStorage.setItem('filter_excludeClassYear', excludeClassYear.toString());
+    safeLocalStorage.setItem('filter_excludeMajorCode', excludeMajorCode.toString());
+    safeLocalStorage.setItem('filter_excludeRoom', excludeRoom.toString());
+    safeLocalStorage.setItem('filter_excludeGender', excludeGender.toString());
+    safeLocalStorage.setItem('filter_excludedGroups', excludedGroups.join(','));
+    safeLocalStorage.setItem('filter_mapResolution', mapResolution.toString());
+  }, [selectedSessionId, level, classYear, majorCode, room, gender, excludeLevel, excludeClassYear, excludeMajorCode, excludeRoom, excludeGender, excludedGroups, mapResolution]);
 
   // Handle Quick Manual Check-in from Absent List
   const handleQuickCheckin = (student: StudentRecord & { session_id?: number }) => {
@@ -532,6 +830,13 @@ export default function AdminDashboard() {
     setMajorCode('');
     setRoom('');
     setGender('');
+    setExcludeLevel(false);
+    setExcludeClassYear(false);
+    setExcludeMajorCode(false);
+    setExcludeRoom(false);
+    setExcludeGender(false);
+    setExcludedGroups([]);
+    setFilterTab('filter');
   };
 
   // Export current list to CSV with Thai BOM support
@@ -666,11 +971,40 @@ export default function AdminDashboard() {
 
       {/* Advanced Filter Controls */}
       <div className="bg-canvas border border-hairline rounded-lg p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="flex justify-between items-center border-b border-hairline pb-2.5">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted flex items-center space-x-1.5">
-            <span>ตัวกรองและเลือกกลุ่มข้อมูล</span>
-          </h3>
-          {(classYear || majorCode || room || gender) && (
+        <div className="flex justify-between items-center border-b border-hairline pb-2">
+          {/* Tabs Navigation */}
+          <div className="flex space-x-4">
+            <button
+              type="button"
+              onClick={() => setFilterTab('filter')}
+              className={`text-xs font-bold uppercase tracking-wider pb-2 border-b-2 transition-all cursor-pointer select-none ${
+                filterTab === 'filter'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted hover:text-ink'
+              }`}
+            >
+              ตัวกรองและเลือกกลุ่มข้อมูล
+            </button>
+            
+            <button
+              type="button"
+              onClick={() => setFilterTab('exclude')}
+              className={`text-xs font-bold uppercase tracking-wider pb-2 border-b-2 transition-all cursor-pointer select-none flex items-center space-x-1.5 ${
+                filterTab === 'exclude'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted hover:text-ink'
+              }`}
+            >
+              <span>ยกเว้นเฉพาะเจาะจง</span>
+              {excludedGroups.length > 0 && (
+                <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[9px] font-bold leading-none">
+                  {excludedGroups.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {(level || classYear || majorCode || room || gender || excludeLevel || excludeClassYear || excludeMajorCode || excludeRoom || excludeGender || excludedGroups.length > 0) && (
             <button 
               onClick={handleClearFilters}
               className="text-xs font-bold text-primary hover:text-primary-active flex items-center space-x-1 transition-colors cursor-pointer"
@@ -681,106 +1015,226 @@ export default function AdminDashboard() {
           )}
         </div>
         
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-          {/* Week Selector */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">ครั้งที่กิจกรรม</label>
-            <select
-              value={selectedSessionId}
-              onChange={e => {
-                const val = e.target.value;
-                if (val === 'all') {
-                  setSelectedSessionId('all');
-                } else {
-                  setSelectedSessionId(val ? Number(val) : '');
-                }
-              }}
-              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
-            >
-              <option value="all">ทุกครั้ง (All Weeks)</option>
-              {sessions.map(s => (
-                <option key={s.id} value={s.id}>
-                  ครั้งที่ {s.week_number} • {s.title}
-                </option>
-              ))}
-              {sessions.length === 0 && <option value="">ไม่มีคาบกิจกรรมในระบบ</option>}
-            </select>
-          </div>
+        {/* Tab 1: Dropdown Filters */}
+        {filterTab === 'filter' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 animation-fade-in">
+            {/* Week Selector */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink">ครั้งที่กิจกรรม</label>
+              <select
+                value={selectedSessionId}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === 'all') {
+                    setSelectedSessionId('all');
+                  } else {
+                    setSelectedSessionId(val ? Number(val) : '');
+                  }
+                }}
+                className="w-full h-9 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="all">ทุกครั้ง (All Weeks)</option>
+                {sessions.map(s => (
+                  <option key={s.id} value={s.id}>
+                    ครั้งที่ {s.week_number} • {s.title}
+                  </option>
+                ))}
+                {sessions.length === 0 && <option value="">ไม่มีคาบกิจกรรมในระบบ</option>}
+              </select>
+            </div>
 
-          {/* Level Selector */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">ระดับชั้น</label>
-            <select
-              value={level}
-              onChange={e => setLevel(e.target.value)}
-              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
-            >
-              <option value="">ทั้งหมด</option>
-              {availableLevels.map(lvl => (
-                <option key={lvl} value={lvl}>{lvl}</option>
-              ))}
-            </select>
-          </div>
+            {/* Level Selector */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink">ระดับชั้น</label>
+              <select
+                value={level}
+                onChange={e => {
+                  setLevel(e.target.value);
+                  if (!e.target.value) setExcludeLevel(false);
+                }}
+                className="w-full h-9 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="">ทั้งหมด</option>
+                {availableLevels.map(lvl => (
+                  <option key={lvl} value={lvl}>{lvl}</option>
+                ))}
+              </select>
+              {level && (
+                <label className="flex items-center space-x-1 mt-0.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={excludeLevel}
+                    onChange={e => setExcludeLevel(e.target.checked)}
+                    className="rounded border-hairline text-primary focus:ring-primary w-3 h-3 accent-emerald-500"
+                  />
+                  <span className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 transition-colors">ยกเว้นระดับชั้นนี้</span>
+                </label>
+              )}
+            </div>
 
-          {/* Class Year */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">ชั้นปี</label>
-            <select
-              value={classYear}
-              onChange={e => setClassYear(e.target.value)}
-              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
-            >
-              <option value="">ทั้งหมด</option>
-              {availableYears.map(year => (
-                <option key={year} value={year}>ปี {year}</option>
-              ))}
-            </select>
-          </div>
+            {/* Class Year */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink">ชั้นปี</label>
+              <select
+                value={classYear}
+                onChange={e => {
+                  setClassYear(e.target.value);
+                  if (!e.target.value) setExcludeClassYear(false);
+                }}
+                className="w-full h-9 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="">ทั้งหมด</option>
+                {availableYears.map(year => (
+                  <option key={year} value={year}>ปี {year}</option>
+                ))}
+              </select>
+              {classYear && (
+                <label className="flex items-center space-x-1 mt-0.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={excludeClassYear}
+                    onChange={e => setExcludeClassYear(e.target.checked)}
+                    className="rounded border-hairline text-primary focus:ring-primary w-3 h-3 accent-emerald-500"
+                  />
+                  <span className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 transition-colors">ยกเว้นชั้นปีนี้</span>
+                </label>
+              )}
+            </div>
 
-          {/* Major Code */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">สาขาวิชา</label>
-            <select
-              value={majorCode}
-              onChange={e => setMajorCode(e.target.value)}
-              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer uppercase"
-            >
-              <option value="">ทั้งหมด</option>
-              {availableMajors.map(major => (
-                <option key={major} value={major}>{major}</option>
-              ))}
-            </select>
-          </div>
+            {/* Major Code */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink">สาขาวิชา</label>
+              <select
+                value={majorCode}
+                onChange={e => {
+                  setMajorCode(e.target.value);
+                  if (!e.target.value) setExcludeMajorCode(false);
+                }}
+                className="w-full h-9 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer uppercase"
+              >
+                <option value="">ทั้งหมด</option>
+                {availableMajors.map(major => (
+                  <option key={major} value={major}>{major}</option>
+                ))}
+              </select>
+              {majorCode && (
+                <label className="flex items-center space-x-1 mt-0.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={excludeMajorCode}
+                    onChange={e => setExcludeMajorCode(e.target.checked)}
+                    className="rounded border-hairline text-primary focus:ring-primary w-3 h-3 accent-emerald-500"
+                  />
+                  <span className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 transition-colors">ยกเว้นสาขาวิชานี้</span>
+                </label>
+              )}
+            </div>
 
-          {/* Room Selector */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">กลุ่มเรียน (ห้อง)</label>
-            <select
-              value={room}
-              onChange={e => setRoom(e.target.value)}
-              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
-            >
-              <option value="">ทั้งหมด</option>
-              {availableRooms.map(r => (
-                <option key={r} value={r}>กลุ่ม {r}</option>
-              ))}
-            </select>
-          </div>
+            {/* Room Selector */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink">กลุ่มเรียน (ห้อง)</label>
+              <select
+                value={room}
+                onChange={e => {
+                  setRoom(e.target.value);
+                  if (!e.target.value) setExcludeRoom(false);
+                }}
+                className="w-full h-9 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="">ทั้งหมด</option>
+                {availableRooms.map(r => (
+                  <option key={r} value={r}>กลุ่ม {r}</option>
+                ))}
+              </select>
+              {room && (
+                <label className="flex items-center space-x-1 mt-0.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={excludeRoom}
+                    onChange={e => setExcludeRoom(e.target.checked)}
+                    className="rounded border-hairline text-primary focus:ring-primary w-3 h-3 accent-emerald-500"
+                  />
+                  <span className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 transition-colors">ยกเว้นห้องเรียนนี้</span>
+                </label>
+              )}
+            </div>
 
-          {/* Gender Selector */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-semibold text-ink">เพศ</label>
-            <select
-              value={gender}
-              onChange={e => setGender(e.target.value)}
-              className="w-full h-10 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
-            >
-              <option value="">ทั้งหมด</option>
-              <option value="male">ชาย (นาย)</option>
-              <option value="female">หญิง (นางสาว)</option>
-            </select>
+            {/* Gender Selector */}
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-ink">เพศ</label>
+              <select
+                value={gender}
+                onChange={e => {
+                  setGender(e.target.value);
+                  if (!e.target.value) setExcludeGender(false);
+                }}
+                className="w-full h-9 border border-hairline rounded-md px-2 text-xs bg-canvas text-ink focus:outline-none focus:border-primary cursor-pointer"
+              >
+                <option value="">ทั้งหมด</option>
+                <option value="male">ชาย (นาย)</option>
+                <option value="female">หญิง (นางสาว)</option>
+              </select>
+              {gender && (
+                <label className="flex items-center space-x-1 mt-0.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={excludeGender}
+                    onChange={e => setExcludeGender(e.target.checked)}
+                    className="rounded border-hairline text-primary focus:ring-primary w-3 h-3 accent-emerald-500"
+                  />
+                  <span className="text-[10px] font-semibold text-rose-500 hover:text-rose-600 transition-colors">ยกเว้นเพศนี้</span>
+                </label>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Tab 2: Specific Room Exclusions (Badges) */}
+        {filterTab === 'exclude' && stats?.allGroups && stats.allGroups.length > 0 && (
+          <div className="space-y-3 animation-fade-in">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <span className="text-[10px] font-bold text-ink uppercase tracking-wider">
+                ยกเว้นกลุ่มเรียนรายห้องเรียนเฉพาะเจาะจง (Exclude Specific Class Rooms)
+              </span>
+              <span className="text-[9px] text-muted font-medium">
+                คลิกกลุ่มเรียนเพื่อยกเว้น/ดึงกลับ (สีแดง/ขอบแดง = ถูกยกเว้นออกจากการคำนวณ)
+              </span>
+            </div>
+            
+            {/* Group by Level: ปวช and ปวส */}
+            <div className="space-y-2.5">
+              {['ปวช', 'ปวส'].map((lvl: string) => {
+                const groupsInLvl = stats.allGroups!.filter((g: { code: string; label: string; level: string }) => g.level === lvl);
+                if (groupsInLvl.length === 0) return null;
+                
+                return (
+                  <div key={lvl} className="flex flex-wrap items-start sm:items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-muted w-10 shrink-0">{lvl}:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {groupsInLvl.map((group: { code: string; label: string; level: string }) => {
+                        const isExcluded = excludedGroups.includes(group.code);
+                        return (
+                          <button
+                            key={group.code}
+                            type="button"
+                            onClick={() => toggleGroupExclusion(group.code)}
+                            className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border transition-all cursor-pointer select-none ${
+                              isExcluded 
+                                ? 'bg-red-50 dark:bg-rose-950/20 border-red-200 dark:border-rose-900/50 text-red-600 dark:text-rose-400 hover:bg-red-100 dark:hover:bg-rose-950/45 shadow-sm'
+                                : 'bg-canvas border-hairline text-muted hover:bg-canvas-subtle hover:text-ink'
+                            }`}
+                          >
+                            {group.code}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards & Radial Progress */}
@@ -982,15 +1436,15 @@ export default function AdminDashboard() {
       {stats && (
         <div className="space-y-8">
           
-          {/* Row 1: Line Chart & Donut Chart */}
+          {/* Row 1: Merged Trend + Compare Chart & Donut Chart */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             
-            {/* Chart 1: Curved Line Chart (Weekly Trend) */}
-            <div className={`${expandedChart === 1 ? 'xl:col-span-2' : expandedChart === 2 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+            {/* Chart 1: Merged — Weekly Trend + เข้า vs ขาด % */}
+            <div className={`${expandedRow1 === 1 ? 'xl:col-span-2' : expandedRow1 === 2 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2 sm:gap-3">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2 shrink-0">
                   <TrendingUp size={16} className="text-primary" />
-                  <span>แนวโน้มการเช็กชื่อเข้ากิจกรรม</span>
+                  <span>แนวโน้มและการเปรียบเทียบการเข้า–ขาดรายคาบ</span>
                 </h3>
                 <div className="flex items-center gap-2 min-w-0 sm:justify-end">
                   {/* Trend limit slider */}
@@ -998,13 +1452,10 @@ export default function AdminDashboard() {
                   <input
                     id="trend-limit-slider"
                     type="range"
-                    min={1}
-                    max={Math.max(1, stats?.weeklyTrend.length ?? 1)}
-                    value={Math.min(trendLimit, Math.max(1, stats?.weeklyTrend.length ?? 1))}
-                    onChange={e => {
-                      setTrendLimit(Number(e.target.value));
-                      setHoveredTrendIndex(null);
-                    }}
+                    min={2}
+                    max={Math.max(2, stats?.weeklyTrend.length ?? 2)}
+                    value={Math.max(2, Math.min(trendLimit, stats?.weeklyTrend.length ?? 2))}
+                    onChange={e => { setTrendLimit(Number(e.target.value)); }}
                     className="flex-1 sm:flex-initial w-full sm:w-24 accent-primary cursor-pointer"
                     style={{ height: '4px' }}
                   />
@@ -1015,189 +1466,165 @@ export default function AdminDashboard() {
                   </span>
                   {/* Expand/collapse button */}
                   <button
-                    onClick={() => setExpandedChart(expandedChart === 1 ? null : 1)}
-                    title={expandedChart === 1 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                    onClick={() => setExpandedRow1(expandedRow1 === 1 ? null : 1)}
+                    title={expandedRow1 === 1 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
                     className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
                   >
-                    {expandedChart === 1 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                    {expandedRow1 === 1 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                   </button>
                 </div>
               </div>
               
               {stats.weeklyTrend.length === 0 ? (
                 <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ยังไม่มีสถิติสำหรับสร้างกราฟแสดงแนวโน้ม</div>
-              ) : (
-                <div className="relative pt-4">
-                  <svg viewBox={`0 0 ${cw1} 180`} className="w-full overflow-visible">
-                    {/* Y Grid lines */}
-                    <line x1="40" y1="20" x2={cw1 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="60" x2={cw1 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="100" x2={cw1 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="140" x2={cw1 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
-                    
-                    {/* Y Axis Labels */}
-                    <text x="32" y="24" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">100%</text>
-                    <text x="32" y="64" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">75%</text>
-                    <text x="32" y="104" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">50%</text>
-                    <text x="32" y="144" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">25%</text>
-                    
-                    {/* Coordinates & Lines */}
-                    {(() => {
-                      const sliced = stats.weeklyTrend.slice(-Math.min(trendLimit, stats.weeklyTrend.length));
-                      const len = sliced.length;
-                      const plotW = cw1 - 60;
-                      const points = sliced.map((t, idx) => {
-                        const step = len > 1 ? plotW / (len - 1) : plotW;
-                        const x = 40 + idx * step;
-                        const y = 140 - (Math.min(t.rate, 100) / 100) * 120;
-                        const diff = idx > 0 ? t.rate - sliced[idx - 1].rate : 0;
-                        return { x, y, data: t, diff };
-                      });
-                      
-                      // Build Bezier Curved Path (Slight curve smoothing)
-                      let pathD = '';
-                      if (points.length > 0) {
-                        pathD = `M ${points[0].x} ${points[0].y}`;
-                        for (let i = 0; i < points.length - 1; i++) {
-                          const cpX1 = points[i].x + (points[i+1].x - points[i].x) / 3;
-                          const cpY1 = points[i].y;
-                          const cpX2 = points[i].x + 2 * (points[i+1].x - points[i].x) / 3;
-                          const cpY2 = points[i+1].y;
-                          pathD += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${points[i+1].x} ${points[i+1].y}`;
-                        }
-                      }
-                      
-                      return (
-                        <>
-                          {/* Gradient shadow under bezier curve */}
-                          {points.length > 1 && pathD && (
-                            <path
-                              d={`${pathD} L ${points[points.length - 1].x} 140 L ${points[0].x} 140 Z`}
-                              fill="url(#trend-gradient-flow)"
-                              opacity="0.15"
-                            />
-                          )}
-                          
-                          {/* Main line path */}
-                          {pathD && (
-                            <path
-                              d={pathD}
-                              fill="none"
-                              stroke="var(--primary)"
-                              strokeWidth="3.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          )}
-                          
-                          {/* Data points */}
-                          {points.map((p, idx) => (
-                            <g 
-                              key={idx} 
-                              className="cursor-pointer"
-                              onMouseEnter={() => setHoveredTrendIndex(idx)}
-                              onMouseLeave={() => setHoveredTrendIndex(null)}
-                            >
-                              {/* Pulse circle on hover */}
-                              <circle
-                                  cx={p.x}
-                                  cy={p.y}
-                                  r={hoveredTrendIndex === idx ? 8 : 4.5}
-                                  className="fill-primary/20 stroke-none transition-all"
-                              />
-                              {/* Actual point dot */}
-                              <circle
-                                cx={p.x}
-                                cy={p.y}
-                                r="4"
-                                className="fill-canvas stroke-primary transition-all duration-150"
-                                strokeWidth="2.5"
-                              />
-                              
-                              {/* Stock change indicator label (for index >= 1) */}
-                              {idx >= 1 && (
-                                <text
-                                  x={p.x}
-                                  y={p.y - 11}
-                                  className="text-[9px] font-black text-center select-none"
-                                  textAnchor="middle"
-                                  fill={p.diff > 0 ? '#10B981' : p.diff < 0 ? '#EF4444' : '#6B7280'}
-                                >
-                                  {p.diff > 0 ? '▲ +' : p.diff < 0 ? '▼ ' : ''}
-                                  {Math.round(p.diff * 10) / 10}%
-                                </text>
-                              )}
-                              
-                              {/* X Axis Labels */}
-                              <text
-                                x={p.x}
-                                y="160"
-                                className={`text-[10px] font-bold transition-all ${
-                                  hoveredTrendIndex === idx ? 'fill-primary font-black' : 'fill-muted'
-                                }`}
-                                textAnchor="middle"
-                              >
-                                W{p.data.weekNumber}
-                              </text>
-                            </g>
-                          ))}
-                        </>
-                      );
-                    })()}
-                    
-                    {/* SVG Definitions */}
-                    <defs>
-                      <linearGradient id="trend-gradient-flow" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--primary)" />
-                        <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
-                  
-                  {/* Floating HTML Tooltip */}
-                  {hoveredTrendIndex !== null && (() => {
-                    const slicedForTooltip = stats.weeklyTrend.slice(-Math.min(trendLimit, stats.weeklyTrend.length));
-                    const hovered = slicedForTooltip[hoveredTrendIndex];
-                    if (!hovered) return null;
-                    return (
-                    <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1.5 animate-in fade-in duration-150 z-10 min-w-[170px] max-w-[220px]">
-                      <div className="font-bold text-ink">ครั้งที่ {hovered.weekNumber}</div>
-                      <div className="text-muted truncate text-[11px] pb-1 border-b border-hairline">{hovered.title}</div>
-                      <div className="flex justify-between items-center gap-4 pt-1 font-semibold">
-                        <span className="text-muted">อัตราเข้ากิจกรรม:</span>
-                        <span className="text-ink font-mono font-bold text-sm">{hovered.rate}%</span>
+              ) : (() => {
+                const sliced = stats.weeklyTrend.slice(-Math.min(trendLimit, stats.weeklyTrend.length));
+                const chartData = sliced.map((t, idx) => ({
+                  name: `W${t.weekNumber}`,
+                  rate: Math.round(t.rate * 10) / 10,
+                  เข้า: Math.round(t.rate * 10) / 10,
+                  ขาด: Math.round((100 - t.rate) * 10) / 10,
+                  title: t.title,
+                  weekNumber: t.weekNumber,
+                  delta: idx > 0 ? Math.round((t.rate - sliced[idx - 1].rate) * 10) / 10 : null,
+                }));
+                const avgRate = chartData.length > 0
+                  ? Math.round((chartData.reduce((s, d) => s + d.rate, 0) / chartData.length) * 10) / 10
+                  : 0;
+
+                const MergedTooltip = ({ active, payload }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload;
+                  return (
+                    <div className="recharts-custom-tooltip">
+                      <div className="tooltip-label">ครั้งที่ {d?.weekNumber} — {d?.title}</div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-dot" style={{ backgroundColor: '#111111' }} />
+                        <span className="tooltip-name">อัตราเข้ากิจกรรม</span>
+                        <span className="tooltip-value">{d?.rate}%</span>
                       </div>
-                      {hoveredTrendIndex > 0 && (() => {
-                        const prevRate = slicedForTooltip[hoveredTrendIndex - 1].rate;
-                        const currRate = hovered.rate;
-                        const diff = currRate - prevRate;
-                        const isUp = diff > 0;
-                        const isDown = diff < 0;
-                        return (
-                          <div className="flex justify-between items-center gap-4 font-bold text-[11px]">
-                            <span className="text-muted font-normal">เปรียบเทียบคาบก่อน:</span>
-                            <span 
-                              className="font-mono flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px]"
-                              style={{ 
-                                color: isUp ? '#10B981' : isDown ? '#EF4444' : '#6B7280',
-                                backgroundColor: isUp ? 'rgba(16, 185, 129, 0.1)' : isDown ? 'rgba(239, 68, 68, 0.1)' : 'rgba(107, 114, 128, 0.1)'
-                              }}
-                            >
-                              {isUp ? '▲ +' : isDown ? '▼ ' : ''}
-                              {Math.round(diff * 10) / 10}%
-                            </span>
-                          </div>
-                        );
-                      })()}
+                      {d?.delta !== null && (
+                        <div className="tooltip-row" style={{ marginTop: 2 }}>
+                          <span className="tooltip-dot" style={{ backgroundColor: d.delta > 0 ? '#10B981' : d.delta < 0 ? '#EF4444' : '#6B7280' }} />
+                          <span className="tooltip-name">เทียบคาบก่อน</span>
+                          <span className="tooltip-value" style={{ color: d.delta > 0 ? '#10B981' : d.delta < 0 ? '#EF4444' : '#6B7280' }}>
+                            {d.delta > 0 ? '▲ +' : d.delta < 0 ? '▼ ' : '±'}{d.delta}%
+                          </span>
+                        </div>
+                      )}
+                      <div style={{ borderTop: '1px solid var(--color-hairline)', marginTop: 6, paddingTop: 6 }}>
+                        <div className="tooltip-row">
+                          <span className="tooltip-dot" style={{ backgroundColor: '#10B981' }} />
+                          <span className="tooltip-name">เข้ากิจกรรม</span>
+                          <span className="tooltip-value" style={{ color: '#10B981' }}>{d?.เข้า}%</span>
+                        </div>
+                        <div className="tooltip-row">
+                          <span className="tooltip-dot" style={{ backgroundColor: '#ef4444' }} />
+                          <span className="tooltip-name">ขาดกิจกรรม</span>
+                          <span className="tooltip-value" style={{ color: '#ef4444' }}>{d?.ขาด}%</span>
+                        </div>
+                        <div className="tooltip-row">
+                          <span className="tooltip-name">ค่าเฉลี่ยรวม</span>
+                          <span className="tooltip-value" style={{ color: '#6b7280' }}>{avgRate}%</span>
+                        </div>
+                      </div>
                     </div>
-                    );
-                  })()}
-                </div>
-              )}
+                  );
+                };
+
+                const CustomDot = (props: any) => {
+                  const { cx, cy } = props;
+                  return <circle cx={cx} cy={cy} r={5} fill="#ffffff" stroke="#111111" strokeWidth={2.5} />;
+                };
+                const ActiveDot = (props: any) => {
+                  const { cx, cy } = props;
+                  return (
+                    <g>
+                      <circle cx={cx} cy={cy} r={10} fill="#111111" fillOpacity={0.07} />
+                      <circle cx={cx} cy={cy} r={6} fill="#ffffff" stroke="#111111" strokeWidth={2.5} />
+                    </g>
+                  );
+                };
+
+                return (
+                  <div style={{ height: 280 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={chartData} margin={{ top: 20, right: 16, left: 0, bottom: 24 }}>
+                        <defs>
+                          <linearGradient id="trendAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#111111" stopOpacity={0.12} />
+                            <stop offset="100%" stopColor="#111111" stopOpacity={0.01} />
+                          </linearGradient>
+                          <linearGradient id="mergedPresentGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#10B981" stopOpacity={0.22} />
+                            <stop offset="100%" stopColor="#10B981" stopOpacity={0.02} />
+                          </linearGradient>
+                          <linearGradient id="mergedAbsentGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#ef4444" stopOpacity={0.16} />
+                            <stop offset="100%" stopColor="#ef4444" stopOpacity={0.01} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-hairline)" vertical={false} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 9.5, fontWeight: 700, fill: '#6b7280', fontStyle: 'italic' }}
+                          axisLine={false}
+                          tickLine={false}
+                          angle={-25}
+                          textAnchor="end"
+                          dy={6}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          tickFormatter={v => `${v}%`}
+                          tick={{ fontSize: 10, fontWeight: 600, fill: '#6b7280' }}
+                          axisLine={false} tickLine={false} width={38}
+                          ticks={[0, 25, 50, 75, 100]}
+                        />
+                        <Tooltip content={<MergedTooltip />} cursor={{ stroke: 'var(--color-hairline)', strokeWidth: 1.5 }} />
+                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingTop: 4 }} />
+                        <ReferenceLine
+                          y={avgRate}
+                          stroke="#6b7280" strokeDasharray="5 4" strokeWidth={1.5}
+                          label={{ value: `เฉลี่ย ${avgRate}%`, position: 'insideTopRight', fontSize: 10, fontWeight: 700, fill: '#6b7280', dy: -4 }}
+                        />
+                        {/* เส้นแนวโน้มหลัก */}
+                        <Area
+                          type="monotone"
+                          dataKey="rate"
+                          name="อัตราเข้ากิจกรรม"
+                          stroke="#111111"
+                          strokeWidth={1.8}
+                          fill="url(#trendAreaGrad)"
+                          dot={<CustomDot />}
+                          activeDot={<ActiveDot />}
+                          animationDuration={600}
+                          animationEasing="ease-out"
+                        />
+                        {/* เส้น ขาด */}
+                        <Area
+                          type="monotone"
+                          dataKey="ขาด"
+                          stroke="#ef4444"
+                          strokeWidth={1.5}
+                          strokeDasharray="4 3"
+                          fill="url(#mergedAbsentGrad)"
+                          dot={{ r: 3, fill: '#ffffff', stroke: '#ef4444', strokeWidth: 1.5 }}
+                          activeDot={{ r: 5 }}
+                          animationDuration={700}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })()}
             </div>
 
+
+
             {/* Chart 2: Single Donut Chart with Folder Tabs */}
-            <div className={`${expandedChart === 2 ? 'xl:col-span-2' : expandedChart === 1 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md`}>
+            <div className={`${expandedRow1 === 2 ? 'xl:col-span-2' : expandedRow1 === 1 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg shadow-sm overflow-hidden flex flex-col transition-all hover:shadow-md`}>
+
               {/* Folder Tabs (Tab แบบแฟ้ม) */}
               <div className="flex border-b border-hairline bg-surface-soft/40 px-2 pt-2 gap-1 overflow-x-auto scrollbar-none items-center">
                 <div className="flex gap-1 min-w-0 flex-1">
@@ -1259,11 +1686,11 @@ export default function AdminDashboard() {
                 </div>
                 {/* Expand/collapse button */}
                 <button
-                  onClick={() => setExpandedChart(expandedChart === 2 ? null : 2)}
-                  title={expandedChart === 2 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                  onClick={() => setExpandedRow1(expandedRow1 === 2 ? null : 2)}
+                  title={expandedRow1 === 2 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
                   className="shrink-0 mr-2 mb-0.5 w-7 h-7 flex items-center justify-center rounded-md border border-hairline bg-canvas hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
                 >
-                  {expandedChart === 2 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  {expandedRow1 === 2 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                 </button>
               </div>
 
@@ -1275,56 +1702,56 @@ export default function AdminDashboard() {
                     {/* The Single Donut Chart */}
                     {(() => {
                       const segments = getSegmentsForTab(ratioTab);
-                      const radius = 48;
-                      const circ = 2 * Math.PI * radius; // 301.6
                       
                       return (
                         <div className="relative w-48 h-48 flex items-center justify-center flex-shrink-0">
-                          <svg viewBox="0 0 120 120" className="w-full h-full transform -rotate-90 overflow-visible">
-                            {segments.map((seg) => {
-                              const offset = circ - (seg.percentage / 100) * circ;
-                              const pathKey = seg.path.join('-');
-                              const isHovered = hoveredPath !== null && pathKey === hoveredPath.join('-');
-                              
-                              // Determine opacity
-                              let opacity = 1.0;
-                              if (hoveredPath !== null && !isHovered) {
-                                opacity = 0.35;
-                              }
-
-                              // Determine stroke width
-                              const strokeWidth = isHovered ? 13 : 9.5;
-
-                              return (
-                                <circle
-                                  key={`${ratioTab}-${pathKey}`}
-                                  cx="60"
-                                  cy="60"
-                                  r={radius}
-                                  className="fill-none cursor-pointer animate-draw-circle transition-all duration-300 ease-out"
-                                  stroke={seg.color}
-                                  strokeWidth={strokeWidth}
-                                  strokeDasharray={circ}
-                                  strokeDashoffset={offset}
-                                  transform={`rotate(${seg.startAngle} 60 60)`}
-                                  style={{ opacity, '--circ': `${circ}px`, '--target-offset': `${offset}px` } as React.CSSProperties}
-                                  onMouseEnter={() => {
-                                    setHoveredPath(seg.path);
-                                    setHoveredSeg({
-                                      label: formatPathLabel(seg.path),
-                                      value: seg.value,
-                                      percentage: seg.percentage,
-                                      color: seg.color
-                                    });
-                                  }}
-                                  onMouseLeave={() => {
-                                    setHoveredPath(null);
-                                    setHoveredSeg(null);
-                                  }}
-                                />
-                              );
-                            })}
-                          </svg>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RechartsPieChart>
+                              <Pie
+                                data={segments}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={62}
+                                outerRadius={80}
+                                paddingAngle={1.5}
+                                cornerRadius={4}
+                                dataKey="value"
+                                stroke="none"
+                                animationDuration={700}
+                                animationEasing="ease-out"
+                              >
+                                {segments.map((seg, idx) => {
+                                  const pathKey = seg.path.join('-');
+                                  const isHovered = hoveredPath !== null && pathKey === hoveredPath.join('-');
+                                  return (
+                                    <Cell
+                                      key={`cell-${idx}`}
+                                      fill={seg.color}
+                                      style={{
+                                        filter: isHovered ? 'drop-shadow(0px 2px 5px rgba(0,0,0,0.18))' : 'none',
+                                        transition: 'all 0.25s ease',
+                                        cursor: 'pointer',
+                                        opacity: hoveredPath !== null && !isHovered ? 0.35 : 1
+                                      }}
+                                      onMouseEnter={() => {
+                                        setHoveredPath(seg.path);
+                                        setHoveredSeg({
+                                          label: formatPathLabel(seg.path),
+                                          value: seg.value,
+                                          percentage: seg.percentage,
+                                          color: seg.color
+                                        });
+                                      }}
+                                      onMouseLeave={() => {
+                                        setHoveredPath(null);
+                                        setHoveredSeg(null);
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </Pie>
+                            </RechartsPieChart>
+                          </ResponsiveContainer>
 
                           {/* Center Details */}
                           <div className="absolute text-center select-none pointer-events-none px-4 w-full">
@@ -1440,160 +1867,219 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Row 2: Room Bar Chart & Hourly Scan Time Chart */}
+          {/* Row 2: Room Bar Chart/Radar & Hourly Scan Time Chart */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             
-            {/* Chart 3: Room-wise Attendance Vertical Bar Chart */}
-            <div className={`${expandedChart === 3 ? 'xl:col-span-2' : expandedChart === 4 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
-              <div className="flex items-center justify-between border-b border-hairline pb-3">
-                <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
+            {/* Chart 3: Room-wise Attendance Chart (Bar / Radar combined) */}
+            <div className={`${expandedRow2 === 3 ? 'xl:col-span-2' : expandedRow2 === 4 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2">
+                <div className="flex items-center space-x-3">
                   <Building size={16} className="text-primary" />
-                  <span>อัตราการเข้าเรียนแยกตามกลุ่มสาขาวิชา (%)</span>
-                </h3>
-                {/* Expand/collapse button */}
-                <button
-                  onClick={() => setExpandedChart(expandedChart === 3 ? null : 3)}
-                  title={expandedChart === 3 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
-                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
-                >
-                  {expandedChart === 3 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                </button>
+                  <h3 className="text-sm font-bold text-ink">
+                    อัตราการเข้าเรียนแยกตามกลุ่มสาขาวิชา (%)
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Tab Selector Buttons for Bar/Radar */}
+                  {stats && stats.roomStats.length >= 2 && (
+                    <div className="flex items-center gap-1 bg-surface-soft p-0.5 rounded-lg border border-hairline shrink-0">
+                      <button
+                        onClick={() => setRoomChartTab('bar')}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                          roomChartTab === 'bar'
+                            ? 'bg-canvas text-primary shadow-sm border border-hairline/50 font-black'
+                            : 'text-muted hover:text-ink'
+                        }`}
+                      >
+                        แท่ง
+                      </button>
+                      <button
+                        onClick={() => setRoomChartTab('radar')}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                          roomChartTab === 'radar'
+                            ? 'bg-canvas text-primary shadow-sm border border-hairline/50 font-black'
+                            : 'text-muted hover:text-ink'
+                        }`}
+                      >
+                        เรดาร์
+                      </button>
+                    </div>
+                  )}
+                  {/* Expand/collapse button */}
+                  <button
+                    onClick={() => setExpandedRow2(expandedRow2 === 3 ? null : 3)}
+                    title={expandedRow2 === 3 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                  >
+                    {expandedRow2 === 3 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  </button>
+                </div>
               </div>
 
               {stats.roomStats.length === 0 ? (
                 <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ไม่มีสถิติแยกตามสาขาวิชาในกลุ่มข้อมูลนี้</div>
-              ) : (
-                <div className="relative pt-4">
-                  {/* Vertical bar chart using SVG */}
-                  <svg viewBox={`0 0 ${cw3} 180`} className="w-full overflow-visible">
-                    {/* Y Grid lines */}
-                    <line x1="40" y1="20" x2={cw3 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="60" x2={cw3 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="100" x2={cw3 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                    <line x1="40" y1="140" x2={cw3 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
+              ) : roomChartTab === 'radar' && stats.roomStats.length >= 2 ? (() => {
+                  const radarData = stats.roomStats.map(r => ({
+                    room: r.room,
+                    อัตราเข้าเรียน: r.rate,
+                  }));
 
-                    {/* Y Axis Labels */}
-                    <text x="32" y="24" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">100%</text>
-                    <text x="32" y="64" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">75%</text>
-                    <text x="32" y="104" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">50%</text>
-                    <text x="32" y="144" className="text-[10px] fill-muted font-bold text-right" textAnchor="end">25%</text>
-
-                    {(() => {
-                      const len = stats.roomStats.length;
-                      const plotW = cw3 - 60;
-                      const step = plotW / len;
-                      const barWidth = Math.min(step * 0.45, 24);
-
-                      const groupColors = [
-                        { stroke: 'stroke-emerald-500', fill: 'fill-emerald-500/20' },
-                        { stroke: 'stroke-blue-500', fill: 'fill-blue-500/20' },
-                        { stroke: 'stroke-violet-500', fill: 'fill-violet-500/20' },
-                        { stroke: 'stroke-pink-500', fill: 'fill-pink-500/20' },
-                        { stroke: 'stroke-amber-500', fill: 'fill-amber-500/20' },
-                        { stroke: 'stroke-teal-500', fill: 'fill-teal-500/20' },
-                        { stroke: 'stroke-rose-500', fill: 'fill-rose-500/20' },
-                        { stroke: 'stroke-indigo-500', fill: 'fill-indigo-500/20' }
-                      ];
-
-                      return stats.roomStats.map((roomStat, idx) => {
-                        const centerX = 40 + idx * step + step / 2;
-                        const cappedRate = Math.min(roomStat.rate, 100);
-                        const barHeight = (cappedRate / 100) * 120;
-                        const barY = 140 - barHeight;
-
-                        // Distinct colors for each group
-                        const colorObj = groupColors[idx % groupColors.length];
-                        const barColor = `${colorObj.stroke} ${colorObj.fill}`;
-
-                        return (
-                          <g 
-                            key={idx} 
-                            className="cursor-pointer"
-                            onMouseEnter={() => setHoveredRoomIndex(idx)}
-                            onMouseLeave={() => setHoveredRoomIndex(null)}
-                          >
-                            {/* Bar background hover highlighter */}
-                            <rect
-                              x={centerX - step / 2}
-                              y="10"
-                              width={step}
-                              height="130"
-                              className="fill-primary/0 hover:fill-primary/[0.02] transition-colors"
-                            />
-
-                            {/* Main Bar */}
-                            <rect
-                              x={centerX - barWidth / 2}
-                              y={barY}
-                              width={barWidth}
-                              height={Math.max(barHeight, 2)}
-                              rx="2"
-                              className={`transition-all duration-300 ${barColor}`}
-                              strokeWidth="2"
-                            />
-
-                            {/* Label inside/top bar */}
-                            <text
-                              x={centerX}
-                              y={barY - 8}
-                              className={`text-[9px] font-bold text-center transition-all ${
-                                hoveredRoomIndex === idx ? 'fill-ink scale-105 font-black' : 'fill-muted'
-                              }`}
-                              textAnchor="middle"
-                            >
-                              {roomStat.rate}%
-                            </text>
-
-                            {/* X Axis label */}
-                            <text
-                              x={centerX}
-                              y="160"
-                              transform={`rotate(-35, ${centerX}, 160)`}
-                              className={`text-[8.5px] font-bold transition-all ${
-                                hoveredRoomIndex === idx ? 'fill-primary font-black' : 'fill-muted'
-                              }`}
-                              textAnchor="end"
-                            >
-                              {roomStat.room}
-                            </text>
-                          </g>
-                        );
-                      });
-                    })()}
-                  </svg>
-
-                  {/* Room Details Hover Tooltip */}
-                  {hoveredRoomIndex !== null && stats.roomStats[hoveredRoomIndex] && (
-                    <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1 animate-in fade-in duration-150 z-10 min-w-[170px]">
-                      <div className="font-bold text-ink flex items-center space-x-1.5">
-                        <span className="w-2 h-2 rounded-full bg-primary inline-block"></span>
-                        <span>กลุ่มเรียน: {stats.roomStats[hoveredRoomIndex].room}</span>
+                  const RadarTooltip = ({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0];
+                    return (
+                      <div className="recharts-custom-tooltip">
+                        <div className="tooltip-label">กลุ่ม {d?.payload?.room}</div>
+                        <div className="tooltip-row">
+                          <span className="tooltip-dot" style={{ backgroundColor: '#111111' }} />
+                          <span className="tooltip-name">อัตราเข้าเรียน</span>
+                          <span className="tooltip-value">{d?.value}%</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between border-t border-hairline pt-1 text-muted-soft mt-1">
-                        <span>เข้าเรียนแล้ว:</span>
-                        <span className="font-bold text-success">{stats.roomStats[hoveredRoomIndex].present} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
-                      </div>
-                      <div className="flex justify-between text-muted-soft">
-                        <span>ไม่เข้ากิจกรรม:</span>
-                        <span className="font-bold text-error">{stats.roomStats[hoveredRoomIndex].absent} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
-                      </div>
-                      <div className="flex justify-between text-muted-soft font-semibold border-b border-hairline pb-1 mb-1">
-                        <span>ในบัญชีรายชื่อ:</span>
-                        <span>{stats.roomStats[hoveredRoomIndex].expected} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
-                      </div>
-                      <div className="flex justify-between text-ink text-[11px] font-bold">
-                        <span>สัดส่วนในกลุ่มผู้เรียนคลาสนี้:</span>
-                        <span className="text-primary">{stats.totalPresent > 0 ? Math.round((stats.roomStats[hoveredRoomIndex].present / stats.totalPresent) * 100) : 0}%</span>
-                      </div>
-                      <div className="text-[10px] text-muted-soft leading-tight mt-0.5">ของนักศึกษาที่เข้ากิจกรรมคาบนี้ทั้งหมด</div>
+                    );
+                  };
+
+                  return (
+                    <div style={{ height: 260 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart data={radarData} margin={{ top: 8, right: 20, left: 20, bottom: 8 }}>
+                          <PolarGrid stroke="var(--color-hairline)" />
+                          <PolarAngleAxis
+                            dataKey="room"
+                            tick={{ fontSize: 11, fontWeight: 700, fill: '#374151' }}
+                          />
+                          <PolarRadiusAxis
+                            angle={90}
+                            domain={[0, 100]}
+                            tickFormatter={v => `${v}%`}
+                            tick={{ fontSize: 9, fill: '#9ca3af' }}
+                            tickCount={5}
+                          />
+                          <Tooltip content={<RadarTooltip />} />
+                          <Radar
+                            name="อัตราเข้าเรียน"
+                            dataKey="อัตราเข้าเรียน"
+                            stroke="#111111"
+                            strokeWidth={2.5}
+                            fill="#111111"
+                            fillOpacity={0.12}
+                            animationDuration={700}
+                            animationEasing="ease-out"
+                            dot={{ r: 4, fill: '#ffffff', stroke: '#111111', strokeWidth: 2 }}
+                          />
+                        </RadarChart>
+                      </ResponsiveContainer>
                     </div>
-                  )}
-                </div>
-              )}
+                  );
+                })() : (() => {
+                const BAR_PALETTE = [
+                  { fill: '#10B981', fillMuted: 'rgba(16,185,129,0.12)', grad: ['#10B981','#059669'] },
+                  { fill: '#3b82f6', fillMuted: 'rgba(59,130,246,0.12)', grad: ['#3b82f6','#2563eb'] },
+                  { fill: '#8b5cf6', fillMuted: 'rgba(139,92,246,0.12)', grad: ['#8b5cf6','#7c3aed'] },
+                  { fill: '#f59e0b', fillMuted: 'rgba(245,158,11,0.12)',  grad: ['#f59e0b','#d97706'] },
+                  { fill: '#ec4899', fillMuted: 'rgba(236,72,153,0.12)',  grad: ['#ec4899','#db2777'] },
+                  { fill: '#06b6d4', fillMuted: 'rgba(6,182,212,0.12)',   grad: ['#06b6d4','#0891b2'] },
+                  { fill: '#f97316', fillMuted: 'rgba(249,115,22,0.12)',  grad: ['#f97316','#ea580c'] },
+                  { fill: '#6366f1', fillMuted: 'rgba(99,102,241,0.12)',  grad: ['#6366f1','#4f46e5'] },
+                ];
+
+                const chartData = stats.roomStats.map((r, idx) => ({
+                  ...r,
+                  colorIdx: idx % BAR_PALETTE.length,
+                  fill: BAR_PALETTE[idx % BAR_PALETTE.length].fill,
+                }));
+
+                const RoomTooltip = ({ active, payload }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload as RoomStat & { fill: string };
+                  const ratioOfPresent = stats.totalPresent > 0
+                    ? Math.round((d.present / stats.totalPresent) * 100) : 0;
+                  return (
+                    <div className="recharts-custom-tooltip">
+                      <div className="tooltip-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: d.fill, flexShrink: 0, display: 'inline-block' }} />
+                        กลุ่มเรียน: {d.room}
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-name">เข้าเรียนแล้ว</span>
+                        <span className="tooltip-value" style={{ color: '#10B981' }}>{d.present} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-name">ไม่เข้ากิจกรรม</span>
+                        <span className="tooltip-value" style={{ color: '#EF4444' }}>{d.absent} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
+                      </div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-name">ในบัญชีรายชื่อ</span>
+                        <span className="tooltip-value">{d.expected} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
+                      </div>
+                      <div className="tooltip-row" style={{ paddingTop: 6, borderTop: '1px solid var(--color-hairline)', marginTop: 4 }}>
+                        <span className="tooltip-name">สัดส่วนในกลุ่มผู้เรียน</span>
+                        <span className="tooltip-value" style={{ color: d.fill }}>{ratioOfPresent}%</span>
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div style={{ height: 260 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 32 }}>
+                        <defs>
+                          {BAR_PALETTE.map((p, i) => (
+                            <linearGradient key={i} id={`roomGrad${i}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={p.grad[0]} stopOpacity={0.95} />
+                              <stop offset="100%" stopColor={p.grad[1]} stopOpacity={0.75} />
+                            </linearGradient>
+                          ))}
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-hairline)" vertical={false} />
+                        <XAxis
+                          dataKey="room"
+                          tick={{ fontSize: 11, fontWeight: 700, fill: '#6b7280' }}
+                          axisLine={false}
+                          tickLine={false}
+                          angle={-25}
+                          textAnchor="end"
+                          dy={4}
+                          interval={0}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          tickFormatter={v => `${v}%`}
+                          tick={{ fontSize: 10, fontWeight: 600, fill: '#6b7280' }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={38}
+                          ticks={[0, 25, 50, 75, 100]}
+                        />
+                        <Tooltip content={<RoomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+                        <ReferenceLine y={80} stroke="#10B981" strokeDasharray="4 3" strokeWidth={1} label={{ value: '80%', position: 'insideTopRight', fontSize: 9, fill: '#10B981', dy: -4 }} />
+                        <Bar
+                          dataKey="rate"
+                          radius={[5, 5, 0, 0]}
+                          maxBarSize={52}
+                          animationDuration={700}
+                          animationEasing="ease-out"
+                        >
+                          <LabelList
+                            dataKey="rate"
+                            position="top"
+                            formatter={(v: any) => `${v}%`}
+                            style={{ fontSize: 10, fontWeight: 800, fill: '#374151' }}
+                          />
+                          {chartData.map((entry, idx) => (
+                            <Cell key={`cell-${idx}`} fill={`url(#roomGrad${entry.colorIdx})`} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Chart 4: Hourly Scan Peak Distribution Bar Chart */}
-            <div className={`${expandedChart === 4 ? 'xl:col-span-2' : expandedChart === 3 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
+            <div className={`${expandedRow2 === 4 ? 'xl:col-span-2' : expandedRow2 === 3 ? 'hidden' : ''} bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2">
                 <h3 className="text-sm font-bold text-ink flex items-center space-x-2 shrink-0">
                   <Clock size={16} className="text-primary" />
@@ -1607,7 +2093,6 @@ export default function AdminDashboard() {
                         key={v}
                         onClick={() => {
                           setScanVolume(v);
-                          setHoveredScanIndex(null);
                         }}
                         className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
                           scanVolume === v 
@@ -1621,11 +2106,11 @@ export default function AdminDashboard() {
                   </div>
                   {/* Expand/collapse button */}
                   <button
-                    onClick={() => setExpandedChart(expandedChart === 4 ? null : 4)}
-                    title={expandedChart === 4 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
+                    onClick={() => setExpandedRow2(expandedRow2 === 4 ? null : 4)}
+                    title={expandedRow2 === 4 ? 'ย่อกราฟ' : 'ขยายกราฟ'}
                     className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md border border-hairline hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
                   >
-                    {expandedChart === 4 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                    {expandedRow2 === 4 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                   </button>
                 </div>
               </div>
@@ -1636,112 +2121,96 @@ export default function AdminDashboard() {
                 if (aggregatedDistribution.length === 0) {
                   return <div className="h-56 flex items-center justify-center text-xs text-muted-soft">ยังไม่มีสถิติช่วงเวลาสแกนในคาบนี้</div>;
                 }
-                
-                return (
-                  <div className="relative pt-4">
-                    <svg viewBox={`0 0 ${cw4} 180`} className="w-full overflow-visible">
-                      {/* Y Grid lines */}
-                      <line x1="40" y1="20" x2={cw4 - 20} y2="20" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                      <line x1="40" y1="60" x2={cw4 - 20} y2="60" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                      <line x1="40" y1="100" x2={cw4 - 20} y2="100" stroke="var(--hairline)" strokeWidth="0.5" strokeDasharray="3 3" />
-                      <line x1="40" y1="140" x2={cw4 - 20} y2="140" stroke="var(--hairline)" strokeWidth="0.5" />
 
-                      {(() => {
-                        const maxCount = Math.max(...aggregatedDistribution.map(d => d.count), 1);
-                        
-                        // Dynamic Y labels based on maxCount
-                        const label4 = maxCount;
-                        const label3 = Math.round(maxCount * 0.75);
-                        const label2 = Math.round(maxCount * 0.5);
-                        const label1 = Math.round(maxCount * 0.25);
+                const maxCount = Math.max(...aggregatedDistribution.map(d => d.count), 1);
+                const avgCount = Math.round(aggregatedDistribution.reduce((s, d) => s + d.count, 0) / aggregatedDistribution.length);
+                const chartData = aggregatedDistribution.map(d => ({
+                  ...d,
+                  shortTime: d.time.split(' - ')[0],
+                  isPeak: d.count === maxCount,
+                }));
 
-                        return (
-                          <>
-                            <text x="32" y="24" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label4}</text>
-                            <text x="32" y="64" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label3}</text>
-                            <text x="32" y="104" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label2}</text>
-                            <text x="32" y="144" className="text-[9px] fill-muted font-bold text-right" textAnchor="end">{label1}</text>
-                          </>
-                        );
-                      })()}
-
-                      {(() => {
-                        const len = aggregatedDistribution.length;
-                        const plotW = cw4 - 60;
-                        const step = plotW / len;
-                        const barWidth = Math.min(step * 0.5, 24);
-                        const maxCount = Math.max(...aggregatedDistribution.map(d => d.count), 1);
-
-                        return aggregatedDistribution.map((item, idx) => {
-                          const centerX = 40 + idx * step + step / 2;
-                          const barHeight = (item.count / maxCount) * 120;
-                          const barY = 140 - barHeight;
-
-                          return (
-                            <g 
-                              key={idx} 
-                              className="cursor-pointer"
-                              onMouseEnter={() => setHoveredScanIndex(idx)}
-                              onMouseLeave={() => setHoveredScanIndex(null)}
-                            >
-                              <rect
-                                x={centerX - step / 2}
-                                y="10"
-                                width={step}
-                                height="130"
-                                className="fill-primary/0 hover:fill-primary/[0.02] transition-colors"
-                              />
-                              
-                              <rect
-                                x={centerX - barWidth / 2}
-                                y={barY}
-                                width={barWidth}
-                                height={Math.max(barHeight, 2)}
-                                rx="2"
-                                className="stroke-primary fill-primary/30 transition-all duration-300"
-                                strokeWidth="1.5"
-                              />
-
-                              {/* Counter above bar */}
-                              <text
-                                x={centerX}
-                                y={barY - 6}
-                                className={`text-[9px] font-extrabold text-center transition-all ${
-                                  hoveredScanIndex === idx ? 'fill-primary font-black scale-110' : 'fill-muted-soft'
-                                }`}
-                                textAnchor="middle"
-                              >
-                                {item.count}
-                              </text>
-
-                              {/* X Axis timestamp */}
-                              <text
-                                x={centerX}
-                                y="158"
-                                transform={`rotate(-35, ${centerX}, 158)`}
-                                className={`text-[8.5px] font-bold transition-all ${
-                                  hoveredScanIndex === idx ? 'fill-primary font-black' : 'fill-muted'
-                                }`}
-                                textAnchor="end"
-                                dx="5"
-                              >
-                                {item.time.split(' - ')[0]}
-                              </text>
-                            </g>
-                          );
-                        });
-                      })()}
-                    </svg>
-
-                    {hoveredScanIndex !== null && aggregatedDistribution[hoveredScanIndex] && (
-                      <div className="absolute top-0 right-4 bg-canvas border border-hairline p-2.5 rounded shadow-lg text-xs space-y-1 animate-in fade-in duration-150 z-10 min-w-[140px]">
-                        <div className="font-bold text-ink">สถิติช่วงเวลาสแกน</div>
-                        <div className="text-muted">ช่วงเวลา: {aggregatedDistribution[hoveredScanIndex].time}</div>
-                        <div className="font-bold text-primary border-t border-hairline pt-1 mt-1">
-                          เช็กชื่อเข้าเรียน: {aggregatedDistribution[hoveredScanIndex].count} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}
-                        </div>
+                const ScanTooltip = ({ active, payload }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload;
+                  const pct = maxCount > 0 ? Math.round((d.count / maxCount) * 100) : 0;
+                  return (
+                    <div className="recharts-custom-tooltip">
+                      <div className="tooltip-label">⏱ {d?.time}</div>
+                      <div className="tooltip-row">
+                        <span className="tooltip-dot" style={{ backgroundColor: d?.isPeak ? '#ef4444' : '#3b82f6' }} />
+                        <span className="tooltip-name">เช็กชื่อเข้าเรียน</span>
+                        <span className="tooltip-value">{d?.count} {selectedSessionId === 'all' ? 'คน-ครั้ง' : 'คน'}</span>
                       </div>
-                    )}
+                      <div className="tooltip-row">
+                        <span className="tooltip-name">เทียบค่าสูงสุด</span>
+                        <span className="tooltip-value" style={{ color: d?.isPeak ? '#ef4444' : '#6b7280' }}>{pct}%</span>
+                      </div>
+                      {d?.isPeak && (
+                        <div style={{ marginTop: 4, fontSize: 10, color: '#ef4444', fontWeight: 700 }}>⚡ ช่วงที่พลุกพล่านที่สุด</div>
+                      )}
+                    </div>
+                  );
+                };
+
+                return (
+                  <div style={{ height: 260 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 24, right: 12, left: 0, bottom: 36 }}>
+                        <defs>
+                          <linearGradient id="scanBarNormal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.9} />
+                            <stop offset="100%" stopColor="#2563eb" stopOpacity={0.65} />
+                          </linearGradient>
+                          <linearGradient id="scanBarPeak" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#ef4444" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#dc2626" stopOpacity={0.75} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-hairline)" vertical={false} />
+                        <XAxis
+                          dataKey="shortTime"
+                          tick={{ fontSize: 9, fontWeight: 700, fill: '#6b7280', fontStyle: 'italic' }}
+                          axisLine={false}
+                          tickLine={false}
+                          angle={-35}
+                          textAnchor="end"
+                          dy={4}
+                          interval={0}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 10, fontWeight: 600, fill: '#6b7280' }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={32}
+                          allowDecimals={false}
+                        />
+                        <Tooltip content={<ScanTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+                        <ReferenceLine
+                          y={avgCount}
+                          stroke="#6b7280"
+                          strokeDasharray="4 3"
+                          strokeWidth={1.5}
+                          label={{ value: `เฉลี่ย ${avgCount}`, position: 'insideTopRight', fontSize: 9, fill: '#6b7280', dy: -4 }}
+                        />
+                        <Bar
+                          dataKey="count"
+                          radius={[4, 4, 0, 0]}
+                          maxBarSize={40}
+                          animationDuration={700}
+                          animationEasing="ease-out"
+                        >
+                          <LabelList
+                            dataKey="count"
+                            position="top"
+                            style={{ fontSize: 9, fontWeight: 800, fill: '#374151' }}
+                          />
+                          {chartData.map((entry, idx) => (
+                            <Cell key={`cell-${idx}`} fill={entry.isPeak ? 'url(#scanBarPeak)' : 'url(#scanBarNormal)'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 );
               })()}
@@ -1749,6 +2218,49 @@ export default function AdminDashboard() {
 
           </div>
 
+          {/* Row 2.5: Interactive Attendance Location Heatmap Map */}
+          {stats && (
+            <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4 transition-all hover:shadow-md mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-hairline pb-3 gap-2">
+                <div className="flex items-center space-x-2">
+                  <MapPin size={16} className="text-primary" />
+                  <h3 className="text-sm font-bold text-ink flex items-center space-x-1.5">
+                    <span>แผนผังความหนาแน่นจุดเช็กชื่อเข้าเรียน (Location Heatmap Grid)</span>
+                  </h3>
+                </div>
+                {/* Resolution controls */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted whitespace-nowrap">ความละเอียดตาราง</span>
+                  <div className="flex items-center gap-1 bg-surface-soft p-0.5 rounded-lg border border-hairline shrink-0">
+                    {([5, 10, 50, 100, 150] as const).map(res => (
+                      <button
+                        key={res}
+                        type="button"
+                        onClick={() => setMapResolution(res)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                          mapResolution === res 
+                            ? 'bg-canvas text-primary shadow-sm border border-hairline/50 font-black' 
+                            : 'text-muted hover:text-ink'
+                        }`}
+                      >
+                        {res}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              <AttendanceMap 
+                presentList={stats.presentList} 
+                sessionLocation={(() => {
+                  const targetId = selectedSessionId === '' ? stats.selectedSessionId : selectedSessionId;
+                  const activeSession = sessions.find(s => s.id === (targetId === 'all' ? null : Number(targetId)));
+                  return activeSession || null;
+                })()}
+                resolution={mapResolution}
+              />
+            </div>
+          )}
         </div>
       )}
 
