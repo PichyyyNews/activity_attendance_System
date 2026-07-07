@@ -240,7 +240,81 @@ export default function AdminAttendanceList() {
     remark: string;
   } | null>(null);
 
+  const [quickMode, setQuickMode] = useState<'off' | 'present' | 'absent'>('off');
+
   const handleCellClick = (student: Student, session: Session) => {
+    if (quickMode !== 'off') {
+      const status = quickMode;
+      const isPresent = student.attendance[session.id] !== undefined;
+      const currentStatus = isPresent ? 'present' : 'absent';
+      
+      if (currentStatus === status) return; // No change needed
+
+      // Optimistic UI update
+      setHeatmapData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          students: prev.students.map(s => {
+            if (s.student_id === student.student_id) {
+              const newAttendance = { ...s.attendance };
+              if (status === 'present') {
+                newAttendance[session.id] = new Date().toISOString();
+              } else {
+                delete newAttendance[session.id];
+              }
+              return { ...s, attendance: newAttendance };
+            }
+            return s;
+          })
+        };
+      });
+
+      // API Call
+      axios.post('/api/attendances/update-status-remark', {
+        student_id: student.student_id,
+        session_id: session.id,
+        status,
+        remark: student.remarks ? (student.remarks[session.id] || '') : '',
+      })
+      .then(() => {
+        // Refresh silently in background
+        if (!activeTab || majors.length === 0) return;
+        const major = majors.find(m => majorKey(m) === activeTab);
+        if (!major) return;
+        axios.get('/api/attendance-heatmap', {
+          params: {
+            level: major.level,
+            year: major.year,
+            major_code: major.major_code,
+            room: major.room,
+          }
+        }).then(res => {
+          setHeatmapData(res.data);
+        });
+      })
+      .catch(err => {
+        console.error('Error in quick mode update:', err);
+        alert('ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
+        // Rollback on error
+        if (!activeTab || majors.length === 0) return;
+        const major = majors.find(m => majorKey(m) === activeTab);
+        if (!major) return;
+        axios.get('/api/attendance-heatmap', {
+          params: {
+            level: major.level,
+            year: major.year,
+            major_code: major.major_code,
+            room: major.room,
+          }
+        }).then(res => {
+          setHeatmapData(res.data);
+        });
+      });
+      return;
+    }
+
+    // Normal mode (show modal)
     const isPresent = student.attendance[session.id] !== undefined;
     const remark = student.remarks ? (student.remarks[session.id] || '') : '';
     setEditingCell({
@@ -412,22 +486,64 @@ export default function AdminAttendanceList() {
 
           {/* Active tab info + search */}
           {activeMajor && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm text-muted">
-                <ChevronRight size={15} className="text-primary" />
-                <span className="font-semibold text-ink">{tabFullLabel(activeMajor)}</span>
-                {heatmapData && (
-                  <span className="text-muted-soft">
-                    · {filteredStudents.length} คน · {sessions.length} ครั้ง
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-surface-soft/40 border border-hairline p-3 rounded-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm text-muted">
+                <div className="flex items-center gap-2">
+                  <ChevronRight size={15} className="text-primary" />
+                  <span className="font-semibold text-ink">{tabFullLabel(activeMajor)}</span>
+                  {heatmapData && (
+                    <span className="text-muted-soft">
+                      · {filteredStudents.length} คน · {sessions.length} ครั้ง
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick Check Mode Selector */}
+                <div className="flex items-center gap-1 bg-canvas border border-hairline rounded-lg p-1 shadow-sm shrink-0">
+                  <span className="text-[11px] font-bold text-muted px-1.5 flex items-center gap-1">
+                    <span>⚡</span> โหมดไว:
                   </span>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => setQuickMode('off')}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all ${
+                      quickMode === 'off'
+                        ? 'bg-ink text-canvas shadow-sm'
+                        : 'text-muted hover:text-ink hover:bg-surface-soft'
+                    }`}
+                  >
+                    ปิด
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickMode('present')}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                      quickMode === 'present'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-emerald-600 hover:bg-emerald-50'
+                    }`}
+                  >
+                    <span>🟢</span> เข้าเรียน
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickMode('absent')}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                      quickMode === 'absent'
+                        ? 'bg-rose-600 text-white shadow-sm'
+                        : 'text-rose-600 hover:bg-rose-50'
+                    }`}
+                  >
+                    <span>🔴</span> ขาดเรียน
+                  </button>
+                </div>
               </div>
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="ค้นหาชื่อหรือรหัสนักศึกษา..."
-                className="h-9 w-full sm:w-64 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                className="h-9 w-full md:w-64 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
               />
             </div>
           )}
