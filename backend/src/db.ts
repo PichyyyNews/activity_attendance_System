@@ -186,7 +186,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_attendances_student_id ON attendances (student_id);
   CREATE INDEX IF NOT EXISTS idx_device_reg_student ON device_registrations (student_id);
   CREATE INDEX IF NOT EXISTS idx_device_reg_hw ON device_registrations (hardware_fingerprint);
-  CREATE INDEX IF NOT EXISTS idx_attendances_device_uuid ON attendances (device_uuid);
   CREATE INDEX IF NOT EXISTS idx_rejections_student_id ON attendance_rejections (student_id);
   CREATE INDEX IF NOT EXISTS idx_rejections_session_id ON attendance_rejections (session_id);
 `);
@@ -351,6 +350,13 @@ try {
   if (!error.message.includes('duplicate column name')) {
     console.error('Migration Error (attendances.device_uuid):', error);
   }
+}
+
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_attendances_device_uuid ON attendances (device_uuid);');
+  console.log('Database Migration: Created index idx_attendances_device_uuid on attendances (device_uuid).');
+} catch (error: any) {
+  console.error('Migration Error (idx_attendances_device_uuid):', error);
 }
 
 try {

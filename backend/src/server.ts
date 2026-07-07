@@ -35,6 +35,36 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// In-memory tracker for rate limiting admin PIN verification attempts
+interface FailedAttemptEntry {
+  count: number;
+  resetTime: number;
+}
+const failedAttempts = new Map<string, FailedAttemptEntry>();
+
+function isRateLimited(ip: string, windowMs: number, max: number): boolean {
+  const now = Date.now();
+  const entry = failedAttempts.get(ip);
+  if (entry && now < entry.resetTime && entry.count >= max) {
+    return true;
+  }
+  return false;
+}
+
+function recordFailedAttempt(ip: string, windowMs: number) {
+  const now = Date.now();
+  let entry = failedAttempts.get(ip);
+  if (!entry || now > entry.resetTime) {
+    entry = { count: 0, resetTime: now + windowMs };
+  }
+  entry.count++;
+  failedAttempts.set(ip, entry);
+}
+
+function clearFailedAttempts(ip: string) {
+  failedAttempts.delete(ip);
+}
+
 // Timing-safe string comparison helper to prevent timing attacks
 function safeCompare(a: string, b: string): boolean {
   try {
@@ -57,6 +87,16 @@ app.use((req, res, next) => {
   const method = req.method;
   const ADMIN_PIN = process.env.ADMIN_PIN || '250669';
 
+  // Get client IP address
+  let ip = '';
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  if (xForwardedFor) {
+    const list = typeof xForwardedFor === 'string' ? xForwardedFor.split(',') : xForwardedFor[0].split(',');
+    ip = list[0].trim();
+  } else {
+    ip = req.socket.remoteAddress || '';
+  }
+
   const isAdminPath = 
     path.startsWith('/api/admin/') ||
     path.startsWith('/api/settings') ||
@@ -75,10 +115,21 @@ app.use((req, res, next) => {
     (path.startsWith('/api/attendance-rejections') && !path.endsWith('/log-attempt'));
 
   if (isAdminPath) {
+    const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+    const MAX_ATTEMPTS = 5;
+
+    if (isRateLimited(ip, WINDOW_MS, MAX_ATTEMPTS)) {
+      return res.status(429).json({ error: 'มีการพยายามเข้าสู่ระบบผิดพลาดมากเกินไป กรุณาลองใหม่อีกครั้งใน 15 นาที' });
+    }
+
     const pin = req.header('X-Admin-Pin');
     if (!pin || !safeCompare(pin, ADMIN_PIN)) {
+      recordFailedAttempt(ip, WINDOW_MS);
       return res.status(401).json({ error: 'ไม่พบสิทธิ์การใช้งานของแอดมินหรือรหัส PIN ไม่ถูกต้อง' });
     }
+
+    // Success: reset attempts
+    clearFailedAttempts(ip);
   }
 
   next();
@@ -311,13 +362,32 @@ app.post('/api/auth/verify', (req, res) => {
   const { pin } = req.body;
   const ADMIN_PIN = process.env.ADMIN_PIN || '250669';
 
+  // Get client IP address
+  let ip = '';
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  if (xForwardedFor) {
+    const list = typeof xForwardedFor === 'string' ? xForwardedFor.split(',') : xForwardedFor[0].split(',');
+    ip = list[0].trim();
+  } else {
+    ip = req.socket.remoteAddress || '';
+  }
+
+  const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+  const MAX_ATTEMPTS = 5;
+
+  if (isRateLimited(ip, WINDOW_MS, MAX_ATTEMPTS)) {
+    return res.status(429).json({ error: 'มีการพยายามเข้าสู่ระบบผิดพลาดมากเกินไป กรุณาลองใหม่อีกครั้งใน 15 นาที' });
+  }
+
   if (!pin) {
     return res.status(400).json({ error: 'กรุณากรอกรหัส PIN' });
   }
 
   if (safeCompare(pin, ADMIN_PIN)) {
+    clearFailedAttempts(ip);
     res.json({ success: true });
   } else {
+    recordFailedAttempt(ip, WINDOW_MS);
     res.status(401).json({ error: 'รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง' });
   }
 });
@@ -2467,7 +2537,14 @@ app.get('/api/backup/export', (req, res) => {
     const exportData: Record<string, any[]> = {};
     for (const table of tables) {
       try {
-        exportData[table] = db.prepare(`SELECT * FROM ${table}`).all();
+        let rows = db.prepare(`SELECT * FROM ${table}`).all() as any[];
+        if (table === 'settings') {
+          rows = rows.map(r => {
+            const { credentials_json, ...rest } = r;
+            return rest;
+          });
+        }
+        exportData[table] = rows;
       } catch { exportData[table] = []; }
     }
     const payload = {
