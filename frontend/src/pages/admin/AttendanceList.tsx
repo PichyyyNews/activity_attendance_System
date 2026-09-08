@@ -482,26 +482,25 @@ export default function AdminAttendanceList() {
 
       const sessionCells = sessions.map(sess => {
         const attended = s.attendance[sess.id] !== undefined;
-        return `<td style="text-align: center; color: ${attended ? '#16a34a' : '#94a3b8'}; font-weight: ${attended ? 'bold' : 'normal'};">${attended ? '✓' : '-'}</td>`;
+        return `<td style="text-align: center; color: #000; font-weight: ${attended ? 'bold' : 'normal'}; font-size: 11px;">${attended ? '✓' : '-'}</td>`;
       }).join('');
 
       return `
         <tr>
-          <td style="text-align: center;">${idx + 1}</td>
-          <td style="text-align: center; font-family: monospace;">${s.student_id}</td>
-          <td style="text-align: left; white-space: nowrap;">${s.prefix || ''}${s.first_name} ${s.last_name}</td>
+          <td style="text-align: center; color: #000;">${idx + 1}</td>
+          <td style="text-align: center; font-family: monospace; color: #000;">${s.student_id}</td>
+          <td style="text-align: left; white-space: nowrap; color: #000;">${s.prefix || ''}${s.first_name} ${s.last_name}</td>
           ${sessionCells}
-          <td style="text-align: center;">${attendedCount}/${totalSessions}</td>
-          <td style="text-align: center; font-weight: bold;">${rate}%</td>
-          <td style="text-align: center; font-weight: bold; color: ${isPass ? '#16a34a' : '#dc2626'};">${isPass ? 'ผ่าน' : 'ไม่ผ่าน'}</td>
+          <td style="text-align: center; color: #000;">${attendedCount}/${totalSessions}</td>
+          <td style="text-align: center; font-weight: bold; color: #000;">${rate}%</td>
+          <td style="text-align: center; font-weight: bold; color: #000;">${isPass ? 'ผ่าน' : 'ไม่ผ่าน'}</td>
         </tr>
       `;
     }).join('');
 
     const headerSessions = sessions.map(sess => `
-      <th style="padding: 4px 6px; text-align: center; font-size: 11px; white-space: nowrap;">
-        <div>ครั้งที่ ${sess.week_number}</div>
-        <div style="font-size: 9px; font-weight: normal; color: #64748b;">${formatShortDate(sess.date)}</div>
+      <th class="session-th">
+        <div class="session-vtext">ครั้งที่ ${sess.week_number} (${formatShortDate(sess.date)})</div>
       </th>
     `).join('');
 
@@ -519,22 +518,41 @@ export default function AdminAttendanceList() {
         <meta charset="utf-8">
         <title>${title}</title>
         <style>
-          @page { size: A4 landscape; margin: 8mm; }
+          @page { size: A4 portrait; margin: 6mm 8mm; }
           * { box-sizing: border-box; }
-          body { font-family: 'Sarabun', 'Noto Sans Thai', 'Segoe UI', Tahoma, sans-serif; font-size: 11px; color: #0f172a; margin: 0; padding: 10px; }
-          .header { text-align: center; margin-bottom: 12px; }
-          .header h2 { margin: 0 0 4px 0; font-size: 16px; font-weight: bold; }
-          .header p { margin: 2px 0; color: #475569; font-size: 11px; }
-          .meta-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11px; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; }
-          .stats { display: flex; gap: 12px; font-weight: 600; }
-          .stat-pass { color: #16a34a; }
-          .stat-fail { color: #dc2626; }
-          table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 10.5px; }
-          th, td { border: 1px solid #cbd5e1; padding: 4px 5px; }
-          th { background-color: #f1f5f9; font-weight: bold; }
-          tr:nth-child(even) { background-color: #f8fafc; }
+          body { font-family: 'Sarabun', 'TH Sarabun New', 'Noto Sans Thai', 'Segoe UI', Tahoma, sans-serif; font-size: 10px; color: #000000; margin: 0; padding: 4px; }
+          .header { text-align: center; margin-bottom: 8px; }
+          .header h2 { margin: 0 0 3px 0; font-size: 15px; font-weight: bold; color: #000; }
+          .header p { margin: 2px 0; color: #1e293b; font-size: 11px; font-weight: 500; }
+          .meta-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 10px; border-bottom: 1px solid #000; padding-bottom: 4px; }
+          .stats { display: flex; gap: 10px; font-weight: bold; color: #000; }
+          table { width: 100%; border-collapse: collapse; margin-top: 2px; font-size: 10px; }
+          th, td { border: 1px solid #000000; padding: 2px 3px; }
+          th { background-color: #f8fafc; font-weight: bold; color: #000; }
+          th.session-th {
+            height: 85px;
+            width: 20px;
+            min-width: 18px;
+            max-width: 24px;
+            padding: 2px 1px;
+            vertical-align: bottom;
+            text-align: center;
+          }
+          .session-vtext {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            white-space: nowrap;
+            font-size: 9px;
+            font-weight: bold;
+            color: #000;
+            margin: 0 auto;
+            letter-spacing: -0.2px;
+            line-height: 1;
+          }
+          tr:nth-child(even) { background-color: #fafafa; }
           @media print {
             body { padding: 0; }
+            th { background-color: #f1f5f9 !important; -webkit-print-color-adjust: exact; }
             tr { page-break-inside: avoid; }
           }
         </style>
@@ -547,8 +565,8 @@ export default function AdminAttendanceList() {
         <div class="meta-bar">
           <div class="stats">
             <span>นักศึกษาทั้งหมด: ${totalStudents} คน</span>
-            <span class="stat-pass">ผ่านเกณฑ์ (≥${passThreshold}%): ${passedCount} คน</span>
-            <span class="stat-fail">ไม่ผ่านเกณฑ์: ${failedCount} คน</span>
+            <span>ผ่านเกณฑ์ (≥${passThreshold}%): ${passedCount} คน</span>
+            <span>ไม่ผ่านเกณฑ์: ${failedCount} คน</span>
             <span>จำนวนกิจกรรมทั้งหมด: ${sessions.length} ครั้ง</span>
           </div>
           <div>วันที่พิมพ์: ${printDate}</div>
@@ -556,13 +574,13 @@ export default function AdminAttendanceList() {
         <table>
           <thead>
             <tr>
-              <th style="width: 35px; text-align: center;">ลำดับ</th>
-              <th style="width: 95px; text-align: center;">รหัสนักศึกษา</th>
-              <th style="text-align: left; min-width: 140px;">ชื่อ - นามสกุล</th>
+              <th style="width: 25px; text-align: center;">ลำดับ</th>
+              <th style="width: 80px; text-align: center;">รหัสนักศึกษา</th>
+              <th style="text-align: left; min-width: 110px;">ชื่อ - นามสกุล</th>
               ${headerSessions}
-              <th style="width: 50px; text-align: center;">มา/รวม</th>
-              <th style="width: 45px; text-align: center;">ร้อยละ</th>
-              <th style="width: 60px; text-align: center;">ประเมิน</th>
+              <th style="width: 40px; text-align: center;">มา/รวม</th>
+              <th style="width: 38px; text-align: center;">ร้อยละ</th>
+              <th style="width: 48px; text-align: center;">ประเมิน</th>
             </tr>
           </thead>
           <tbody>
@@ -1050,9 +1068,10 @@ export default function AdminAttendanceList() {
                     <th className="p-2 border border-hairline text-center w-28">รหัสนักศึกษา</th>
                     <th className="p-2 border border-hairline min-w-[140px]">ชื่อ - นามสกุล</th>
                     {sessions.map(s => (
-                      <th key={s.id} className="p-2 border border-hairline text-center min-w-[65px]">
-                        <div className="font-bold text-ink">ครั้งที่ {s.week_number}</div>
-                        <div className="text-[10px] text-muted-soft font-normal">{formatShortDate(s.date)}</div>
+                      <th key={s.id} className="p-1 border border-hairline text-center w-8 min-w-[26px] h-24 align-bottom">
+                        <div className="[writing-mode:vertical-rl] rotate-180 whitespace-nowrap text-[10px] font-bold text-ink mx-auto py-1">
+                          ครั้งที่ {s.week_number} ({formatShortDate(s.date)})
+                        </div>
                       </th>
                     ))}
                     <th className="p-2 border border-hairline text-center w-16">มา/รวม</th>
@@ -1086,7 +1105,7 @@ export default function AdminAttendanceList() {
                             return (
                               <td key={sess.id} className="p-2 border border-hairline text-center font-bold">
                                 {attended ? (
-                                  <span className="text-emerald-600">✓</span>
+                                  <span className="text-black font-bold">✓</span>
                                 ) : (
                                   <span className="text-muted-soft font-normal">-</span>
                                 )}
@@ -1121,7 +1140,7 @@ export default function AdminAttendanceList() {
             {/* Modal Footer */}
             <div className="px-6 py-3 border-t border-hairline bg-surface-soft/50 flex items-center justify-between">
               <span className="text-xs text-muted">
-                กด <strong>พิมพ์ / บันทึก PDF</strong> เพื่อเลือกพิมพ์ลงกระดาษ A4 แนวนอน หรือบันทึกเป็นไฟล์ PDF
+                กด <strong>พิมพ์ / บันทึก PDF</strong> เพื่อเลือกพิมพ์ลงกระดาษ A4 แนวตั้ง หรือบันทึกเป็นไฟล์ PDF
               </span>
               <button
                 type="button"
