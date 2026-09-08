@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { ClipboardCheck, Users, ChevronRight, CheckCircle2, XCircle, Minus, X } from 'lucide-react';
+import { ClipboardCheck, Users, ChevronRight, CheckCircle2, XCircle, Minus, X, Printer, Download, SlidersHorizontal } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -65,46 +65,36 @@ function tabFullLabel(m: Major) {
   return `${m.level}.${m.year} ${m.major_name} กลุ่ม ${m.room}`;
 }
 
-/** Compute streak of consecutive presents ending at index i */
-function streakAt(student: Student, sessions: Session[], idx: number): number {
-  let streak = 0;
-  for (let k = idx; k >= 0; k--) {
-    if (student.attendance[sessions[k].id] !== undefined) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
 
-/** Color for a heatmap cell */
-function cellColor(status: 'present' | 'absent' | 'no-session', streak: number, hasRemark: boolean): string {
+/** Color for a heatmap cell - single uniform green level for present */
+function cellColor(status: 'present' | 'absent' | 'no-session', hasRemark: boolean): string {
   if (status === 'no-session') return '#e2e8f0';
   if (status === 'absent') {
     return hasRemark ? '#ffedd5' : '#fca5a5';
   }
-  // present — ramp by streak
-  if (streak >= 5) return '#14532d';
-  if (streak >= 4) return '#166534';
-  if (streak >= 3) return '#15803d';
-  if (streak >= 2) return '#22c55e';
-  return '#86efac';
+  // present — uniform single level green
+  return '#22c55e';
 }
 
-function cellBorderColor(status: 'present' | 'absent' | 'no-session', streak: number, hasRemark: boolean): string {
+function cellBorderColor(status: 'present' | 'absent' | 'no-session', hasRemark: boolean): string {
   if (status === 'no-session') return '#cbd5e1';
   if (status === 'absent') {
     return hasRemark ? '#f97316' : '#f87171';
   }
-  if (streak >= 3) return '#15803d';
-  if (streak >= 2) return '#16a34a';
-  return '#4ade80';
+  return '#16a34a';
 }
 
 function formatDate(dateStr: string) {
   try {
     return new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatShortDate(dateStr: string) {
+  try {
+    return new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
   } catch {
     return dateStr;
   }
@@ -125,13 +115,12 @@ function HeatmapRow({
   onLeave: () => void;
   onClickCell: (student: Student, session: Session) => void;
 }) {
-  const cells = sessions.map((session, idx) => {
+  const cells = sessions.map((session) => {
     const hasAttended = student.attendance[session.id] !== undefined;
     const status: 'present' | 'absent' | 'no-session' = hasAttended ? 'present' : 'absent';
-    const streak = hasAttended ? streakAt(student, sessions, idx) : 0;
     const hasRemark = !!(student.remarks && student.remarks[session.id]);
-    const bg = cellColor(status, streak, hasRemark);
-    const border = cellBorderColor(status, streak, hasRemark);
+    const bg = cellColor(status, hasRemark);
+    const border = cellBorderColor(status, hasRemark);
     return { session, status, bg, border, attendedAt: student.attendance[session.id] };
   });
 
@@ -241,6 +230,8 @@ export default function AdminAttendanceList() {
   } | null>(null);
 
   const [quickMode, setQuickMode] = useState<'off' | 'present' | 'absent'>('off');
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [passThreshold, setPassThreshold] = useState(80);
 
   const handleCellClick = (student: Student, session: Session) => {
     if (quickMode !== 'off') {
@@ -403,14 +394,190 @@ export default function AdminAttendanceList() {
 
   const sessions = heatmapData?.sessions || [];
 
-  // Legend stripe bg for streak
+  // Legend stripe bg - single uniform green level
   const legendItems = [
+    { label: 'เข้ากิจกรรม', color: '#22c55e', border: '#16a34a' },
     { label: 'ไม่เข้ากิจกรรม', color: '#fca5a5', border: '#f87171' },
     { label: 'ไม่เข้ากิจกรรม (มีหมายเหตุ)', color: '#ffedd5', border: '#f97316' },
-    { label: 'เข้ากิจกรรม ×1', color: '#86efac', border: '#4ade80' },
-    { label: 'เข้ากิจกรรม ×2', color: '#22c55e', border: '#16a34a' },
-    { label: 'เข้ากิจกรรม ×3+', color: '#15803d', border: '#15803d' },
   ];
+
+  // Export current active major list to CSV with Thai BOM support
+  const handleExportCSV = () => {
+    if (!activeMajor || !heatmapData || filteredStudents.length === 0) return;
+
+    const headerCols = [
+      'ลำดับ',
+      'รหัสนักศึกษา',
+      'คำนำหน้า',
+      'ชื่อจริง',
+      'นามสกุล',
+      ...sessions.map(s => `ครั้งที่ ${s.week_number} (${formatShortDate(s.date)})`),
+      'เข้ากิจกรรม (ครั้ง)',
+      'กิจกรรมทั้งหมด (ครั้ง)',
+      'ร้อยละ (%)',
+      'ผลการประเมิน'
+    ];
+
+    const rows = filteredStudents.map((s, idx) => {
+      const attendedCount = sessions.filter(sess => s.attendance[sess.id] !== undefined).length;
+      const totalSessions = sessions.length;
+      const rate = totalSessions > 0 ? Math.round((attendedCount / totalSessions) * 100) : 0;
+      const isPass = rate >= passThreshold;
+
+      const sessionStatuses = sessions.map(sess => {
+        return s.attendance[sess.id] !== undefined ? '✓' : '-';
+      });
+
+      return [
+        idx + 1,
+        `="${s.student_id}"`,
+        s.prefix || '',
+        s.first_name,
+        s.last_name,
+        ...sessionStatuses,
+        attendedCount,
+        totalSessions,
+        `${rate}%`,
+        isPass ? 'ผ่าน' : 'ไม่ผ่าน'
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [
+      headerCols.join(','),
+      ...rows.map(r => r.map(val => `"${val}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `รายงานการเข้ากิจกรรม_${tabLabel(activeMajor)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Print or save report to PDF
+  const handlePrintPDF = () => {
+    if (!activeMajor || !heatmapData || filteredStudents.length === 0) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('กรุณาอนุญาตให้เบราว์เซอร์เปิดหน้าต่างป๊อปอัป (Pop-up) เพื่อพิมพ์รายงาน');
+      return;
+    }
+
+    const title = `รายงานการเข้ากิจกรรม_${tabFullLabel(activeMajor)}`;
+    const printDate = new Date().toLocaleDateString('th-TH', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    const rowsHtml = filteredStudents.map((s, idx) => {
+      const attendedCount = sessions.filter(sess => s.attendance[sess.id] !== undefined).length;
+      const totalSessions = sessions.length;
+      const rate = totalSessions > 0 ? Math.round((attendedCount / totalSessions) * 100) : 0;
+      const isPass = rate >= passThreshold;
+
+      const sessionCells = sessions.map(sess => {
+        const attended = s.attendance[sess.id] !== undefined;
+        return `<td style="text-align: center; color: ${attended ? '#16a34a' : '#94a3b8'}; font-weight: ${attended ? 'bold' : 'normal'};">${attended ? '✓' : '-'}</td>`;
+      }).join('');
+
+      return `
+        <tr>
+          <td style="text-align: center;">${idx + 1}</td>
+          <td style="text-align: center; font-family: monospace;">${s.student_id}</td>
+          <td style="text-align: left; white-space: nowrap;">${s.prefix || ''}${s.first_name} ${s.last_name}</td>
+          ${sessionCells}
+          <td style="text-align: center;">${attendedCount}/${totalSessions}</td>
+          <td style="text-align: center; font-weight: bold;">${rate}%</td>
+          <td style="text-align: center; font-weight: bold; color: ${isPass ? '#16a34a' : '#dc2626'};">${isPass ? 'ผ่าน' : 'ไม่ผ่าน'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const headerSessions = sessions.map(sess => `
+      <th style="padding: 4px 6px; text-align: center; font-size: 11px; white-space: nowrap;">
+        <div>ครั้งที่ ${sess.week_number}</div>
+        <div style="font-size: 9px; font-weight: normal; color: #64748b;">${formatShortDate(sess.date)}</div>
+      </th>
+    `).join('');
+
+    const totalStudents = filteredStudents.length;
+    const passedCount = filteredStudents.filter(s => {
+      const att = sessions.filter(sess => s.attendance[sess.id] !== undefined).length;
+      return (sessions.length > 0 ? Math.round((att / sessions.length) * 100) : 0) >= passThreshold;
+    }).length;
+    const failedCount = totalStudents - passedCount;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="th">
+      <head>
+        <meta charset="utf-8">
+        <title>${title}</title>
+        <style>
+          @page { size: A4 landscape; margin: 8mm; }
+          * { box-sizing: border-box; }
+          body { font-family: 'Sarabun', 'Noto Sans Thai', 'Segoe UI', Tahoma, sans-serif; font-size: 11px; color: #0f172a; margin: 0; padding: 10px; }
+          .header { text-align: center; margin-bottom: 12px; }
+          .header h2 { margin: 0 0 4px 0; font-size: 16px; font-weight: bold; }
+          .header p { margin: 2px 0; color: #475569; font-size: 11px; }
+          .meta-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11px; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; }
+          .stats { display: flex; gap: 12px; font-weight: 600; }
+          .stat-pass { color: #16a34a; }
+          .stat-fail { color: #dc2626; }
+          table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 10.5px; }
+          th, td { border: 1px solid #cbd5e1; padding: 4px 5px; }
+          th { background-color: #f1f5f9; font-weight: bold; }
+          tr:nth-child(even) { background-color: #f8fafc; }
+          @media print {
+            body { padding: 0; }
+            tr { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2>รายงานสรุปการเข้าร่วมกิจกรรม</h2>
+          <p>${tabFullLabel(activeMajor)}</p>
+        </div>
+        <div class="meta-bar">
+          <div class="stats">
+            <span>นักศึกษาทั้งหมด: ${totalStudents} คน</span>
+            <span class="stat-pass">ผ่านเกณฑ์ (≥${passThreshold}%): ${passedCount} คน</span>
+            <span class="stat-fail">ไม่ผ่านเกณฑ์: ${failedCount} คน</span>
+            <span>จำนวนกิจกรรมทั้งหมด: ${sessions.length} ครั้ง</span>
+          </div>
+          <div>วันที่พิมพ์: ${printDate}</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 35px; text-align: center;">ลำดับ</th>
+              <th style="width: 95px; text-align: center;">รหัสนักศึกษา</th>
+              <th style="text-align: left; min-width: 140px;">ชื่อ - นามสกุล</th>
+              ${headerSessions}
+              <th style="width: 50px; text-align: center;">มา/รวม</th>
+              <th style="width: 45px; text-align: center;">ร้อยละ</th>
+              <th style="width: 60px; text-align: center;">ประเมิน</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 350);
+  };
 
   return (
     <div className="w-full space-y-5 animate-in fade-in duration-300">
@@ -538,13 +705,35 @@ export default function AdminAttendanceList() {
                   </button>
                 </div>
               </div>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="ค้นหาชื่อหรือรหัสนักศึกษา..."
-                className="h-9 w-full md:w-64 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-              />
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="ค้นหาชื่อหรือรหัสนักศึกษา..."
+                  className="h-9 w-full sm:w-56 border border-hairline rounded-md px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowReportModal(true)}
+                    className="h-9 px-3 rounded-md bg-canvas border border-hairline text-ink hover:bg-surface-soft hover:border-primary text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                    title="พิมพ์รายงานสรุปผล หรือ บันทึกเป็น PDF"
+                  >
+                    <Printer size={15} className="text-primary" />
+                    <span>พิมพ์รายงาน / PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportCSV}
+                    className="h-9 px-3 rounded-md bg-canvas border border-hairline text-ink hover:bg-surface-soft hover:border-emerald-600 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                    title="ดาวน์โหลดรายงานเป็นไฟล์ CSV"
+                  >
+                    <Download size={15} className="text-emerald-600" />
+                    <span className="hidden sm:inline">ส่งออก CSV</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -752,6 +941,194 @@ export default function AdminAttendanceList() {
                 className="h-10 px-6 bg-primary hover:bg-primary-active text-white rounded-lg text-sm font-semibold shadow-md shadow-primary/20 transition-all cursor-pointer border-0"
               >
                 บันทึกข้อมูล
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Preview Modal */}
+      {showReportModal && activeMajor && heatmapData && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-200">
+          <div className="bg-canvas border border-hairline rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-hairline bg-surface-soft">
+              <div>
+                <h3 className="text-lg font-bold text-ink flex items-center gap-2">
+                  <Printer className="text-primary" size={20} />
+                  <span>รายงานสรุปการเข้าร่วมกิจกรรม (Attendance Report)</span>
+                </h3>
+                <p className="text-xs text-muted mt-0.5">
+                  {tabFullLabel(activeMajor)} · ทั้งหมด {filteredStudents.length} คน · {sessions.length} ครั้ง
+                </p>
+              </div>
+
+              {/* Toolbar in Modal */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Threshold Setting */}
+                <div className="flex items-center gap-1.5 bg-canvas border border-hairline px-2.5 py-1 rounded-lg text-xs">
+                  <SlidersHorizontal size={13} className="text-muted" />
+                  <span className="text-muted font-medium">เกณฑ์ผ่าน:</span>
+                  <select
+                    value={passThreshold}
+                    onChange={e => setPassThreshold(Number(e.target.value))}
+                    className="bg-transparent font-bold text-ink outline-none cursor-pointer"
+                  >
+                    <option value={90}>90%</option>
+                    <option value={85}>85%</option>
+                    <option value={80}>80% (มาตรฐาน)</option>
+                    <option value={75}>75%</option>
+                    <option value={70}>70%</option>
+                    <option value={60}>60%</option>
+                    <option value={50}>50%</option>
+                  </select>
+                </div>
+
+                {/* Print Button */}
+                <button
+                  type="button"
+                  onClick={handlePrintPDF}
+                  className="h-9 px-3.5 bg-primary hover:bg-primary-active text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm shadow-primary/20 transition-all border-0"
+                >
+                  <Printer size={15} />
+                  <span>พิมพ์ / บันทึก PDF</span>
+                </button>
+
+                {/* CSV Button */}
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="h-9 px-3 bg-canvas border border-hairline text-ink hover:bg-surface-soft rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <Download size={15} className="text-emerald-600" />
+                  <span>CSV</span>
+                </button>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowReportModal(false)}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Summary Stat Bar */}
+            {(() => {
+              const total = filteredStudents.length;
+              const passed = filteredStudents.filter(s => {
+                const att = sessions.filter(sess => s.attendance[sess.id] !== undefined).length;
+                return (sessions.length > 0 ? Math.round((att / sessions.length) * 100) : 0) >= passThreshold;
+              }).length;
+              const failed = total - passed;
+              return (
+                <div className="grid grid-cols-3 divide-x divide-hairline border-b border-hairline bg-canvas text-center py-2 text-xs">
+                  <div>
+                    <span className="text-muted">นักศึกษาทั้งหมด: </span>
+                    <span className="font-bold text-ink">{total} คน</span>
+                  </div>
+                  <div>
+                    <span className="text-muted">ผ่านเกณฑ์ (≥{passThreshold}%): </span>
+                    <span className="font-bold text-emerald-600">{passed} คน ({total > 0 ? Math.round((passed / total) * 100) : 0}%)</span>
+                  </div>
+                  <div>
+                    <span className="text-muted">ไม่ผ่านเกณฑ์: </span>
+                    <span className="font-bold text-rose-600">{failed} คน ({total > 0 ? Math.round((failed / total) * 100) : 0}%)</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Modal Body / Table Preview */}
+            <div className="overflow-auto flex-1 p-4">
+              <table className="w-full text-left text-xs border-collapse border border-hairline">
+                <thead>
+                  <tr className="bg-surface-soft border-b border-hairline text-muted font-bold">
+                    <th className="p-2 border border-hairline text-center w-10">ลำดับ</th>
+                    <th className="p-2 border border-hairline text-center w-28">รหัสนักศึกษา</th>
+                    <th className="p-2 border border-hairline min-w-[140px]">ชื่อ - นามสกุล</th>
+                    {sessions.map(s => (
+                      <th key={s.id} className="p-2 border border-hairline text-center min-w-[65px]">
+                        <div className="font-bold text-ink">ครั้งที่ {s.week_number}</div>
+                        <div className="text-[10px] text-muted-soft font-normal">{formatShortDate(s.date)}</div>
+                      </th>
+                    ))}
+                    <th className="p-2 border border-hairline text-center w-16">มา/รวม</th>
+                    <th className="p-2 border border-hairline text-center w-14">ร้อยละ</th>
+                    <th className="p-2 border border-hairline text-center w-20">ผลประเมิน</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline text-ink">
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={sessions.length + 6} className="p-8 text-center text-muted">
+                        ไม่พบข้อมูลนักศึกษาตามเงื่อนไขที่ค้นหา
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredStudents.map((s, idx) => {
+                      const attendedCount = sessions.filter(sess => s.attendance[sess.id] !== undefined).length;
+                      const totalSessions = sessions.length;
+                      const rate = totalSessions > 0 ? Math.round((attendedCount / totalSessions) * 100) : 0;
+                      const isPass = rate >= passThreshold;
+
+                      return (
+                        <tr key={s.id} className="hover:bg-surface-soft/40 transition-colors">
+                          <td className="p-2 border border-hairline text-center text-muted font-mono">{idx + 1}</td>
+                          <td className="p-2 border border-hairline text-center font-mono font-medium">{s.student_id}</td>
+                          <td className="p-2 border border-hairline font-medium whitespace-nowrap">
+                            {s.prefix || ''}{s.first_name} {s.last_name}
+                          </td>
+                          {sessions.map(sess => {
+                            const attended = s.attendance[sess.id] !== undefined;
+                            return (
+                              <td key={sess.id} className="p-2 border border-hairline text-center font-bold">
+                                {attended ? (
+                                  <span className="text-emerald-600">✓</span>
+                                ) : (
+                                  <span className="text-muted-soft font-normal">-</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="p-2 border border-hairline text-center font-mono">
+                            {attendedCount}/{totalSessions}
+                          </td>
+                          <td className="p-2 border border-hairline text-center font-bold font-mono">
+                            {rate}%
+                          </td>
+                          <td className="p-2 border border-hairline text-center">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
+                                isPass
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              {isPass ? 'ผ่าน' : 'ไม่ผ่าน'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3 border-t border-hairline bg-surface-soft/50 flex items-center justify-between">
+              <span className="text-xs text-muted">
+                กด <strong>พิมพ์ / บันทึก PDF</strong> เพื่อเลือกพิมพ์ลงกระดาษ A4 แนวนอน หรือบันทึกเป็นไฟล์ PDF
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowReportModal(false)}
+                className="h-8 px-4 bg-canvas border border-hairline rounded-lg text-xs font-semibold text-muted hover:text-ink hover:bg-surface-soft transition-colors cursor-pointer"
+              >
+                ปิดหน้าต่าง
               </button>
             </div>
           </div>
