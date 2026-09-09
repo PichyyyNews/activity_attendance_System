@@ -4080,27 +4080,38 @@ app.get('/api/assembly/student-summary/:studentId', (req, res) => {
   }
 });
 
-// 8. GET /api/assembly/dashboard-summary (Admin Assembly Overview)
+// 8. GET /api/assembly/dashboard-summary (Admin Assembly EDA Analytics Overview)
 app.get('/api/assembly/dashboard-summary', (req, res) => {
   try {
     const activeSem = getActiveSettings();
     const queryYear = (req.query.academic_year as string) || activeSem.academic_year;
     const queryTerm = (req.query.term as string) || activeSem.term;
+    const timeframe = (req.query.timeframe as string) || '14d'; // '7d', '14d', '30d', 'term'
+    const filterLevel = (req.query.level as string) || 'all'; // 'all', 'ปวช', 'ปวส'
     const today = getBangkokDateOnly();
 
-    // Total enrolled students
+    // Base student condition
+    let studentWhere = `academic_year = ? AND term = ?`;
+    const studentParams: any[] = [queryYear, queryTerm];
+    if (filterLevel && filterLevel !== 'all') {
+      studentWhere += ` AND level LIKE ?`;
+      studentParams.push(`%${filterLevel}%`);
+    }
+
+    // Total enrolled students under filter
     const totalStudentsRow = db.prepare(`
       SELECT COUNT(*) as count FROM students 
-      WHERE academic_year = ? AND term = ?
-    `).get(queryYear, queryTerm) as { count: number };
-    const totalStudents = totalStudentsRow.count || 0;
+      WHERE ${studentWhere}
+    `).get(...studentParams) as { count: number };
+    const totalStudents = totalStudentsRow?.count || 0;
 
-    // Today's attendances
+    // 1. Today's attendances
     const todayAttendances = db.prepare(`
       SELECT status, COUNT(*) as count FROM assembly_attendances
       WHERE date = ? AND academic_year = ? AND term = ?
+      ${filterLevel && filterLevel !== 'all' ? 'AND level LIKE ?' : ''}
       GROUP BY status
-    `).all(today, queryYear, queryTerm) as { status: string; count: number }[];
+    `).all(...(filterLevel && filterLevel !== 'all' ? [today, queryYear, queryTerm, `%${filterLevel}%`] : [today, queryYear, queryTerm])) as { status: string; count: number }[];
 
     let todayPresent = 0;
     let todayLate = 0;
@@ -4113,22 +4124,38 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
     const todayCheckedIn = todayPresent + todayLate;
     const todayAbsent = Math.max(0, totalStudents - todayCheckedIn - todayLeave);
     const todayRate = totalStudents > 0 ? Math.round((todayCheckedIn / totalStudents) * 100) : 0;
+    const todayOnTimeRate = todayCheckedIn > 0 ? Math.round((todayPresent / todayCheckedIn) * 100) : 0;
 
-    // Last 14 days trend
-    const pastDates = db.prepare(`
+    // 2. Determine past dates based on timeframe
+    let limitClause = '';
+    if (timeframe === '7d') limitClause = 'LIMIT 7';
+    else if (timeframe === '14d') limitClause = 'LIMIT 14';
+    else if (timeframe === '30d') limitClause = 'LIMIT 30';
+
+    const pastDatesRows = db.prepare(`
       SELECT DISTINCT date FROM assembly_attendances
       WHERE academic_year = ? AND term = ?
       ORDER BY date DESC
-      LIMIT 14
+      ${limitClause}
     `).all(queryYear, queryTerm) as { date: string }[];
 
+    const pastDates = pastDatesRows.map(r => r.date).reverse();
+
+    // 3. Trend across timeframe
     const trend = [];
-    for (const d of pastDates.reverse()) {
+    let sumCheckedIn = 0;
+    let sumPresent = 0;
+    let sumLate = 0;
+    let sumLeave = 0;
+    let sumAbsent = 0;
+
+    for (const d of pastDates) {
       const stats = db.prepare(`
         SELECT status, COUNT(*) as count FROM assembly_attendances
         WHERE date = ? AND academic_year = ? AND term = ?
+        ${filterLevel && filterLevel !== 'all' ? 'AND level LIKE ?' : ''}
         GROUP BY status
-      `).all(d.date, queryYear, queryTerm) as { status: string; count: number }[];
+      `).all(...(filterLevel && filterLevel !== 'all' ? [d, queryYear, queryTerm, `%${filterLevel}%`] : [d, queryYear, queryTerm])) as { status: string; count: number }[];
 
       let pres = 0;
       let late = 0;
@@ -4139,31 +4166,323 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
         if (s.status === 'leave') leave = s.count;
       }
       const chk = pres + late;
+      const abs = Math.max(0, totalStudents - chk - leave);
       const rate = totalStudents > 0 ? Math.round((chk / totalStudents) * 100) : 0;
+      const onTimeRate = chk > 0 ? Math.round((pres / chk) * 100) : 0;
+
+      sumCheckedIn += chk;
+      sumPresent += pres;
+      sumLate += late;
+      sumLeave += leave;
+      sumAbsent += abs;
+
       trend.push({
-        date: d.date,
+        date: d,
         present: pres,
         late,
         leave,
-        absent: Math.max(0, totalStudents - chk - leave),
-        rate
+        absent: abs,
+        rate,
+        on_time_rate: onTimeRate
       });
     }
 
-    // Attendance rate by Department (major_code)
+    const timeframeDaysCount = pastDates.length;
+    const avgAttendanceRate = timeframeDaysCount > 0 ? Math.round(trend.reduce((acc, cur) => acc + cur.rate, 0) / timeframeDaysCount) : 0;
+    const avgOnTimeRate = timeframeDaysCount > 0 && sumCheckedIn > 0 ? Math.round((sumPresent / sumCheckedIn) * 100) : 0;
+
+    // 4. Check-in Time Distribution (15-minute Buckets)
+    const datesForTimeDist = pastDates.length > 0 ? pastDates : [today];
+    const placeholders = datesForTimeDist.map(() => '?').join(',');
+    
+    const timeDistRows = db.prepare(`
+      SELECT attended_at, status FROM assembly_attendances
+      WHERE date IN (${placeholders}) AND academic_year = ? AND term = ?
+      ${filterLevel && filterLevel !== 'all' ? 'AND level LIKE ?' : ''}
+    `).all(...datesForTimeDist, queryYear, queryTerm, ...(filterLevel && filterLevel !== 'all' ? [`%${filterLevel}%`] : [])) as { attended_at: string; status: string }[];
+
+    const timeBuckets = [
+      { slot: 'ก่อน 07:15', range: '< 07:15', present: 0, late: 0, total: 0, sortKey: 0 },
+      { slot: '07:15 - 07:30', range: '07:15 - 07:30', present: 0, late: 0, total: 0, sortKey: 1 },
+      { slot: '07:30 - 07:45', range: '07:30 - 07:45', present: 0, late: 0, total: 0, sortKey: 2 },
+      { slot: '07:45 - 08:00', range: '07:45 - 08:00', present: 0, late: 0, total: 0, sortKey: 3 },
+      { slot: '08:00 - 08:15', range: '08:00 - 08:15 (สาย)', present: 0, late: 0, total: 0, sortKey: 4 },
+      { slot: '08:15 - 08:30', range: '08:15 - 08:30 (สาย)', present: 0, late: 0, total: 0, sortKey: 5 },
+      { slot: 'หลัง 08:30', range: '> 08:30 (สายมาก)', present: 0, late: 0, total: 0, sortKey: 6 },
+    ];
+
+    for (const r of timeDistRows) {
+      if (!r.attended_at) continue;
+      let timePart = '';
+      if (r.attended_at.includes('T')) {
+        timePart = r.attended_at.split('T')[1]?.substring(0, 5) || '';
+      } else if (r.attended_at.includes(' ')) {
+        timePart = r.attended_at.split(' ')[1]?.substring(0, 5) || '';
+      }
+      if (!timePart) continue;
+
+      let idx = 0;
+      if (timePart < '07:15') idx = 0;
+      else if (timePart < '07:30') idx = 1;
+      else if (timePart < '07:45') idx = 2;
+      else if (timePart < '08:00') idx = 3;
+      else if (timePart < '08:15') idx = 4;
+      else if (timePart < '08:30') idx = 5;
+      else idx = 6;
+
+      if (r.status === 'present') timeBuckets[idx].present++;
+      else if (r.status === 'late') timeBuckets[idx].late++;
+      timeBuckets[idx].total++;
+    }
+
+    let peakSlot = timeBuckets[3];
+    for (const b of timeBuckets) {
+      if (b.total > peakSlot.total) peakSlot = b;
+    }
+
+    // 5. Day-of-Week Attendance Analysis (จันทร์ - ศุกร์)
+    const weekdayBuckets: Record<number, { dayNum: number; name: string; datesCount: number; present: number; late: number; absent: number; checkedIn: number; totalStudentsEnrolled: number }> = {
+      1: { dayNum: 1, name: 'วันจันทร์', datesCount: 0, present: 0, late: 0, absent: 0, checkedIn: 0, totalStudentsEnrolled: 0 },
+      2: { dayNum: 2, name: 'วันอังคาร', datesCount: 0, present: 0, late: 0, absent: 0, checkedIn: 0, totalStudentsEnrolled: 0 },
+      3: { dayNum: 3, name: 'วันพุธ', datesCount: 0, present: 0, late: 0, absent: 0, checkedIn: 0, totalStudentsEnrolled: 0 },
+      4: { dayNum: 4, name: 'วันพฤหัสบดี', datesCount: 0, present: 0, late: 0, absent: 0, checkedIn: 0, totalStudentsEnrolled: 0 },
+      5: { dayNum: 5, name: 'วันศุกร์', datesCount: 0, present: 0, late: 0, absent: 0, checkedIn: 0, totalStudentsEnrolled: 0 },
+    };
+
+    for (const d of pastDates) {
+      const [y, m, day] = d.split('-').map(Number);
+      const dt = new Date(y, m - 1, day);
+      const dayOfWeek = dt.getDay();
+      if (weekdayBuckets[dayOfWeek]) {
+        weekdayBuckets[dayOfWeek].datesCount++;
+        weekdayBuckets[dayOfWeek].totalStudentsEnrolled += totalStudents;
+        const item = trend.find(t => t.date === d);
+        if (item) {
+          weekdayBuckets[dayOfWeek].present += item.present;
+          weekdayBuckets[dayOfWeek].late += item.late;
+          weekdayBuckets[dayOfWeek].absent += item.absent;
+          weekdayBuckets[dayOfWeek].checkedIn += (item.present + item.late);
+        }
+      }
+    }
+
+    const dayOfWeekStats = Object.values(weekdayBuckets).map(w => {
+      const avgPresent = w.datesCount > 0 ? Math.round(w.present / w.datesCount) : 0;
+      const avgLate = w.datesCount > 0 ? Math.round(w.late / w.datesCount) : 0;
+      const avgAbsent = w.datesCount > 0 ? Math.round(w.absent / w.datesCount) : 0;
+      const rate = w.totalStudentsEnrolled > 0 ? Math.round((w.checkedIn / w.totalStudentsEnrolled) * 100) : 0;
+      return {
+        day: w.name,
+        avg_present: avgPresent,
+        avg_late: avgLate,
+        avg_absent: avgAbsent,
+        rate,
+        dates_count: w.datesCount
+      };
+    });
+
+    // 6. Level Comparison (ปวช.1, ปวช.2, ปวช.3, ปวส.1, ปวส.2)
+    const levelRows = db.prepare(`
+      SELECT level, year, COUNT(DISTINCT student_id) as total_students
+      FROM students
+      WHERE ${studentWhere}
+      GROUP BY level, year
+      ORDER BY level ASC, year ASC
+    `).all(...studentParams) as { level: string; year: string; total_students: number }[];
+
+    const levelStats = levelRows.map(lvl => {
+      const label = `${lvl.level}.${lvl.year}`;
+      const todayLvlCount = db.prepare(`
+        SELECT 
+          SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+          SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late,
+          SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as leave
+        FROM assembly_attendances
+        WHERE date = ? AND level = ? AND year = ? AND academic_year = ? AND term = ?
+      `).get(today, lvl.level, lvl.year, queryYear, queryTerm) as any;
+
+      const pres = todayLvlCount?.present || 0;
+      const late = todayLvlCount?.late || 0;
+      const leave = todayLvlCount?.leave || 0;
+      const chk = pres + late;
+      const abs = Math.max(0, lvl.total_students - chk - leave);
+      const rate = lvl.total_students > 0 ? Math.round((chk / lvl.total_students) * 100) : 0;
+      const onTimeRate = chk > 0 ? Math.round((pres / chk) * 100) : 0;
+
+      return {
+        name: label,
+        level: lvl.level,
+        year: lvl.year,
+        total_students: lvl.total_students,
+        present: pres,
+        late,
+        leave,
+        absent: abs,
+        rate,
+        on_time_rate: onTimeRate
+      };
+    });
+
+    // 7. Gender / Prefix Analysis
+    const maleTotal = db.prepare(`
+      SELECT COUNT(*) as count FROM students
+      WHERE ${studentWhere} AND (prefix LIKE '%นาย%' OR prefix LIKE '%ด.ช.%')
+    `).get(...studentParams) as { count: number };
+
+    const femaleTotal = db.prepare(`
+      SELECT COUNT(*) as count FROM students
+      WHERE ${studentWhere} AND (prefix LIKE '%นางสาว%' OR prefix LIKE '%น.ส.%' OR prefix LIKE '%นาง%' OR prefix LIKE '%ด.ญ.%')
+    `).get(...studentParams) as { count: number };
+
+    const todayMaleChecked = db.prepare(`
+      SELECT 
+        SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+        SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late
+      FROM assembly_attendances
+      WHERE date = ? AND academic_year = ? AND term = ?
+      AND (prefix LIKE '%นาย%' OR prefix LIKE '%ด.ช.%')
+    `).get(today, queryYear, queryTerm) as any;
+
+    const todayFemaleChecked = db.prepare(`
+      SELECT 
+        SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+        SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late
+      FROM assembly_attendances
+      WHERE date = ? AND academic_year = ? AND term = ?
+      AND (prefix LIKE '%นางสาว%' OR prefix LIKE '%น.ส.%' OR prefix LIKE '%นาง%' OR prefix LIKE '%ด.ญ.%')
+    `).get(today, queryYear, queryTerm) as any;
+
+    const mTotal = maleTotal?.count || 0;
+    const fTotal = femaleTotal?.count || 0;
+    const mPres = todayMaleChecked?.present || 0;
+    const mLate = todayMaleChecked?.late || 0;
+    const mChk = mPres + mLate;
+    const fPres = todayFemaleChecked?.present || 0;
+    const fLate = todayFemaleChecked?.late || 0;
+    const fChk = fPres + fLate;
+
+    const genderStats = [
+      {
+        gender: 'ชาย',
+        total: mTotal,
+        checked_in: mChk,
+        present: mPres,
+        late: mLate,
+        absent: Math.max(0, mTotal - mChk),
+        rate: mTotal > 0 ? Math.round((mChk / mTotal) * 100) : 0,
+        on_time_rate: mChk > 0 ? Math.round((mPres / mChk) * 100) : 0,
+        color: '#3b82f6'
+      },
+      {
+        gender: 'หญิง',
+        total: fTotal,
+        checked_in: fChk,
+        present: fPres,
+        late: fLate,
+        absent: Math.max(0, fTotal - fChk),
+        rate: fTotal > 0 ? Math.round((fChk / fTotal) * 100) : 0,
+        on_time_rate: fChk > 0 ? Math.round((fPres / fChk) * 100) : 0,
+        color: '#ec4899'
+      }
+    ];
+
+    // 8. Student Attendance Risk Segmentation (>=80% Pass, 60-79% Warning, <60% Critical)
+    const allSemesterDates = db.prepare(`
+      SELECT DISTINCT date FROM assembly_attendances
+      WHERE academic_year = ? AND term = ?
+    `).all(queryYear, queryTerm) as { date: string }[];
+    const totalTermDays = allSemesterDates.length || 1;
+
+    const studentAttCounts = db.prepare(`
+      SELECT student_id, COUNT(*) as attended_count
+      FROM assembly_attendances
+      WHERE academic_year = ? AND term = ? AND (status = 'present' OR status = 'late')
+      GROUP BY student_id
+    `).all(queryYear, queryTerm) as { student_id: string; attended_count: number }[];
+
+    const studentAttMap = new Map<string, number>();
+    for (const s of studentAttCounts) {
+      studentAttMap.set(s.student_id, s.attended_count);
+    }
+
+    const allStudentsList = db.prepare(`
+      SELECT student_id, level, year, major_code, room FROM students
+      WHERE ${studentWhere}
+    `).all(...studentParams) as any[];
+
+    let goodCount = 0;     // >= 80%
+    let warningCount = 0;  // 60% - 79%
+    let criticalCount = 0; // < 60%
+
+    const roomAgg: Record<string, { key: string; major_code: string; level: string; year: string; room: string; total_students: number; total_attended: number; max_possible: number }> = {};
+
+    for (const st of allStudentsList) {
+      const att = studentAttMap.get(st.student_id) || 0;
+      const pct = Math.round((att / totalTermDays) * 100);
+      if (pct >= 80) goodCount++;
+      else if (pct >= 60) warningCount++;
+      else criticalCount++;
+
+      const roomKey = `${st.level || ''}.${st.year || ''} ${st.major_code || ''} ห้อง ${st.room || ''}`;
+      if (!roomAgg[roomKey]) {
+        roomAgg[roomKey] = {
+          key: roomKey,
+          major_code: st.major_code || '',
+          level: st.level || '',
+          year: st.year || '',
+          room: st.room || '',
+          total_students: 0,
+          total_attended: 0,
+          max_possible: 0
+        };
+      }
+      roomAgg[roomKey].total_students++;
+      roomAgg[roomKey].total_attended += att;
+      roomAgg[roomKey].max_possible += totalTermDays;
+    }
+
+    const riskSegmentation = {
+      good: { count: goodCount, percentage: totalStudents > 0 ? Math.round((goodCount / totalStudents) * 100) : 0, label: 'ดีเยี่ยม (>= 80%)' },
+      warning: { count: warningCount, percentage: totalStudents > 0 ? Math.round((warningCount / totalStudents) * 100) : 0, label: 'เฝ้าระวัง (60-79%)' },
+      critical: { count: criticalCount, percentage: totalStudents > 0 ? Math.round((criticalCount / totalStudents) * 100) : 0, label: 'เสี่ยงตกกิจกรรม (< 60%)' },
+      total_students: totalStudents,
+      total_recorded_days: totalTermDays
+    };
+
+    // 9. Top 5 At-Risk Classrooms
+    const atRiskRooms = Object.values(roomAgg)
+      .filter(r => r.total_students >= 1)
+      .map(r => {
+        const rate = r.max_possible > 0 ? Math.round((r.total_attended / r.max_possible) * 100) : 0;
+        const absentEstimated = r.max_possible - r.total_attended;
+        return {
+          room_name: r.key,
+          major_code: r.major_code,
+          level: r.level,
+          year: r.year,
+          room: r.room,
+          total_students: r.total_students,
+          rate,
+          absent_count: Math.max(0, absentEstimated)
+        };
+      })
+      .sort((a, b) => a.rate - b.rate)
+      .slice(0, 5);
+
+    // 10. Department Rankings (major_code)
     const majorStats = db.prepare(`
       SELECT major_code, major_name, COUNT(DISTINCT student_id) as student_count
       FROM students
-      WHERE academic_year = ? AND term = ?
+      WHERE ${studentWhere}
       GROUP BY major_code
-    `).all(queryYear, queryTerm) as any[];
+    `).all(...studentParams) as any[];
 
     const departmentRankings = majorStats.map(m => {
       const attCountRow = db.prepare(`
         SELECT COUNT(*) as count FROM assembly_attendances
         WHERE date = ? AND major_code = ? AND (status = 'present' OR status = 'late')
       `).get(today, m.major_code) as { count: number };
-      const checkedIn = attCountRow.count || 0;
+      const checkedIn = attCountRow?.count || 0;
       const rate = m.student_count > 0 ? Math.round((checkedIn / m.student_count) * 100) : 0;
       return {
         major_code: m.major_code,
@@ -4174,8 +4493,32 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
       };
     }).sort((a, b) => b.rate - a.rate);
 
+    // 11. Location & Geo Stats
+    const locationRows = db.prepare(`
+      SELECT matched_location, COUNT(*) as count
+      FROM assembly_attendances
+      WHERE date = ? AND academic_year = ? AND term = ?
+      GROUP BY matched_location
+    `).all(today, queryYear, queryTerm) as { matched_location: string | null; count: number }[];
+
+    const locationStats = locationRows.map(loc => ({
+      name: loc.matched_location || 'ไม่ระบุพิกัด / เช็กชื่อธรรมดา',
+      count: loc.count
+    }));
+
+    // 12. Rejection Summary in timeframe
+    const rejectionRows = db.prepare(`
+      SELECT rejection_reason, COUNT(*) as count
+      FROM assembly_rejections
+      WHERE date IN (${placeholders}) AND academic_year = ? AND term = ?
+      GROUP BY rejection_reason
+      ORDER BY count DESC
+      LIMIT 5
+    `).all(...datesForTimeDist, queryYear, queryTerm) as { rejection_reason: string; count: number }[];
+
     res.json({
       today_date: today,
+      timeframe,
       total_students: totalStudents,
       today: {
         checked_in: todayCheckedIn,
@@ -4183,10 +4526,32 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
         late: todayLate,
         leave: todayLeave,
         absent: todayAbsent,
-        rate: todayRate
+        rate: todayRate,
+        on_time_rate: todayOnTimeRate
+      },
+      timeframe_overview: {
+        total_days: timeframeDaysCount,
+        avg_attendance_rate: avgAttendanceRate,
+        avg_on_time_rate: avgOnTimeRate,
+        total_checked_in: sumCheckedIn,
+        total_present: sumPresent,
+        total_late: sumLate,
+        total_absent: sumAbsent
       },
       trend,
-      department_rankings: departmentRankings
+      time_distribution: {
+        buckets: timeBuckets,
+        peak_slot: peakSlot?.slot || '07:45 - 08:00',
+        total_scans: timeDistRows.length
+      },
+      day_of_week_stats: dayOfWeekStats,
+      level_stats: levelStats,
+      gender_stats: genderStats,
+      risk_segmentation: riskSegmentation,
+      at_risk_rooms: atRiskRooms,
+      department_rankings: departmentRankings,
+      location_stats: locationStats,
+      rejection_summary: rejectionRows
     });
   } catch (error) {
     console.error('Error fetching assembly dashboard summary:', error);
