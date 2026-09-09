@@ -137,22 +137,6 @@ export default function UserDashboard() {
             <img src="/logo.svg" alt="AAS Logo" className="w-6 h-6 object-contain" />
             <span className="font-extrabold text-base text-ink tracking-tight">AAS</span>
           </div>
-
-          <div className="flex items-center gap-2">
-            <Link
-              to="/assembly/scan"
-              className="px-3 py-1.5 rounded-lg border border-hairline text-xs font-bold text-ink hover:bg-surface-soft flex items-center gap-1.5 transition-colors"
-            >
-              <Clock size={13} className="text-primary" />
-              <span>สแกนเข้าแถว</span>
-            </Link>
-            <Link
-              to="/admin"
-              className="text-xs text-muted hover:text-ink transition-colors px-2 py-1"
-            >
-              สำหรับแอดมิน
-            </Link>
-          </div>
         </div>
       </header>
 
