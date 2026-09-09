@@ -21,3 +21,8 @@ acoustic-arch-*.json
 # Tar archives
 *.tar
 *.tar.gz
+
+# Uploads
+backend/uploads/
+uploads/
+

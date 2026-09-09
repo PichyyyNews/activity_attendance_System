@@ -8,6 +8,11 @@ if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
 }
 
+const uploadsDir = path.join(__dirname, '../uploads/assembly');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const db = new Database(path.join(dataDir, 'database.sqlite'));
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
@@ -561,6 +566,196 @@ try {
   if (!error.message.includes('duplicate column name')) {
     console.error('Migration Error (attendances.hardware_fingerprint):', error);
   }
+}
+
+// -------------------------------------------------------------
+// Morning Assembly (ระบบเข้าแถวหน้าเสาธง) Database Schema
+// -------------------------------------------------------------
+db.exec(`
+  CREATE TABLE IF NOT EXISTS assembly_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    is_enabled INTEGER DEFAULT 1,
+    qr_mode TEXT DEFAULT 'static',
+    static_token TEXT,
+    start_time TEXT DEFAULT '07:30',
+    late_time TEXT DEFAULT '08:00',
+    close_time TEXT DEFAULT '08:30',
+    active_days TEXT DEFAULT '1,2,3,4,5',
+    require_photo INTEGER DEFAULT 1,
+    require_gps INTEGER DEFAULT 1,
+    location1_name TEXT DEFAULT 'ลานหน้าเสาธง',
+    location1_lat REAL DEFAULT NULL,
+    location1_lng REAL DEFAULT NULL,
+    location1_radius INTEGER DEFAULT 150,
+    location2_enabled INTEGER DEFAULT 0,
+    location2_name TEXT DEFAULT 'โดมอเนกประสงค์',
+    location2_lat REAL DEFAULT NULL,
+    location2_lng REAL DEFAULT NULL,
+    location2_radius INTEGER DEFAULT 150,
+    manual_override_open INTEGER DEFAULT 0,
+    manual_override_date TEXT DEFAULT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS assembly_holidays (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    academic_year TEXT NOT NULL,
+    term TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS assembly_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,
+    daily_token TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    closed_at DATETIME DEFAULT NULL,
+    academic_year TEXT NOT NULL,
+    term TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS assembly_attendances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    assembly_session_id INTEGER,
+    date TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    prefix TEXT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    level TEXT,
+    year TEXT,
+    major_name TEXT,
+    major_code TEXT,
+    room TEXT,
+    status TEXT DEFAULT 'present',
+    photo_path TEXT,
+    remark TEXT,
+    attended_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    academic_year TEXT NOT NULL,
+    term TEXT NOT NULL,
+    device_uuid TEXT,
+    latitude REAL DEFAULT NULL,
+    longitude REAL DEFAULT NULL,
+    matched_location TEXT,
+    ip_address TEXT,
+    UNIQUE(date, student_id),
+    FOREIGN KEY (assembly_session_id) REFERENCES assembly_sessions(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_assembly_att_date_student ON assembly_attendances(date, student_id);
+  CREATE INDEX IF NOT EXISTS idx_assembly_att_student ON assembly_attendances(student_id);
+  CREATE INDEX IF NOT EXISTS idx_assembly_att_date ON assembly_attendances(date);
+  CREATE INDEX IF NOT EXISTS idx_assembly_att_device ON assembly_attendances(device_uuid);
+  CREATE INDEX IF NOT EXISTS idx_assembly_holidays_date ON assembly_holidays(date);
+
+  CREATE TABLE IF NOT EXISTS assembly_rejections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    prefix TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    level TEXT,
+    year TEXT,
+    major_name TEXT,
+    major_code TEXT,
+    room TEXT,
+    device_uuid TEXT,
+    hardware_fingerprint TEXT,
+    ip_address TEXT,
+    confidence_score REAL,
+    device_flags TEXT,
+    rejection_reason TEXT NOT NULL,
+    rejected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    academic_year TEXT NOT NULL,
+    term TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_assembly_rej_date ON assembly_rejections(date);
+  CREATE INDEX IF NOT EXISTS idx_assembly_rej_student ON assembly_rejections(student_id);
+`);
+
+// Safe migrations for assembly_settings
+try {
+  db.exec('ALTER TABLE assembly_settings ADD COLUMN require_device_fingerprint INTEGER DEFAULT 0;');
+  console.log('Database Migration: Added require_device_fingerprint column to assembly_settings table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_settings.require_device_fingerprint):', error);
+  }
+}
+
+try {
+  db.exec("ALTER TABLE assembly_settings ADD COLUMN start_date TEXT DEFAULT '2026-05-18';");
+  console.log('Database Migration: Added start_date column to assembly_settings table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_settings.start_date):', error);
+  }
+}
+
+try {
+  db.exec("ALTER TABLE assembly_settings ADD COLUMN end_date_type TEXT DEFAULT 'manual';");
+  console.log('Database Migration: Added end_date_type column to assembly_settings table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_settings.end_date_type):', error);
+  }
+}
+
+try {
+  db.exec("ALTER TABLE assembly_settings ADD COLUMN end_date TEXT DEFAULT NULL;");
+  console.log('Database Migration: Added end_date column to assembly_settings table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_settings.end_date):', error);
+  }
+}
+
+// Safe migrations for assembly_attendances fingerprint columns
+try {
+  db.exec('ALTER TABLE assembly_attendances ADD COLUMN confidence_score REAL DEFAULT NULL;');
+  console.log('Database Migration: Added confidence_score to assembly_attendances.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_attendances.confidence_score):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE assembly_attendances ADD COLUMN device_flags TEXT DEFAULT NULL;');
+  console.log('Database Migration: Added device_flags to assembly_attendances.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_attendances.device_flags):', error);
+  }
+}
+
+try {
+  db.exec('ALTER TABLE assembly_attendances ADD COLUMN hardware_fingerprint TEXT DEFAULT NULL;');
+  console.log('Database Migration: Added hardware_fingerprint to assembly_attendances.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_attendances.hardware_fingerprint):', error);
+  }
+}
+
+// Seed default assembly settings if empty
+try {
+  const existingSettings = db.prepare('SELECT id FROM assembly_settings WHERE id = 1').get();
+  if (!existingSettings) {
+    const defaultStaticToken = crypto.randomBytes(8).toString('hex');
+    db.prepare(`
+      INSERT INTO assembly_settings (
+        id, is_enabled, qr_mode, static_token, start_time, late_time, close_time,
+        active_days, require_photo, require_gps, location1_name, location1_radius, require_device_fingerprint
+      ) VALUES (1, 1, 'static', ?, '07:30', '08:00', '08:30', '1,2,3,4,5', 1, 1, 'ลานหน้าเสาธง', 150, 0)
+    `).run(defaultStaticToken);
+    console.log('Database Initialization: Seeded default assembly_settings with token:', defaultStaticToken);
+  }
+} catch (error) {
+  console.error('Error seeding assembly_settings:', error);
 }
 
 export default db;

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Link, Outlet } from 'react-router-dom';
 import axios from 'axios';
-import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users, Plus, ShieldAlert } from 'lucide-react';
+import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users, Plus, ShieldAlert, Clock } from 'lucide-react';
 
 // Set up global axios default header for Admin authorization
 const savedPin = sessionStorage.getItem('admin_pin');
@@ -14,7 +14,12 @@ import AdminSessions from './pages/admin/Sessions';
 import AdminAttendanceList from './pages/admin/AttendanceList';
 import AdminStudents from './pages/admin/Students';
 import AdminSystemLogs from './pages/admin/SystemLogs';
+import AssemblyDashboard from './pages/admin/AssemblyDashboard';
+import AssemblySettings from './pages/admin/AssemblySettings';
+import AssemblyAttendance from './pages/admin/AssemblyAttendance';
+import AssemblySystemLogs from './pages/admin/AssemblySystemLogs';
 import UserScanForm from './pages/UserScanForm';
+import UserAssemblyScan from './pages/UserAssemblyScan';
 import UserDashboard from './pages/UserDashboard';
 import NotFound from './pages/NotFound';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -227,13 +232,32 @@ function AdminLayout() {
     );
   }
 
-  const navItems = [
-    { to: '/admin', label: 'ภาพรวม', icon: LayoutDashboard, end: true },
-    { to: '/admin/sessions', label: 'คาบกิจกรรม', icon: Calendar },
-    { to: '/admin/students', label: 'รายชื่อนักเรียน', icon: Users },
-    { to: '/admin/attendance', label: 'ตารางเช็กชื่อ', icon: ClipboardCheck },
-    { to: '/admin/systemlog', label: 'บันทึกระบบ', icon: ShieldAlert },
-    { to: '/admin/settings', label: 'ตั้งค่าระบบ', icon: Settings },
+  const navSections = [
+    {
+      title: 'คาบกิจกรรม',
+      items: [
+        { to: '/admin', label: 'ภาพรวมกิจกรรม', icon: LayoutDashboard, end: true },
+        { to: '/admin/sessions', label: 'คาบกิจกรรม', icon: Calendar },
+        { to: '/admin/attendance', label: 'ตารางเช็กกิจกรรม', icon: ClipboardCheck },
+      ]
+    },
+    {
+      title: 'เข้าแถวหน้าเสาธง',
+      items: [
+        { to: '/admin/assembly', label: 'ภาพรวมเข้าแถว', icon: Clock, end: true },
+        { to: '/admin/assembly/attendance', label: 'ตารางเช็กเข้าแถว', icon: Users },
+        { to: '/admin/assembly/logs', label: 'บันทึกระบบเข้าแถว', icon: ShieldAlert },
+        { to: '/admin/assembly/settings', label: 'ตั้งค่ารอบเข้าแถว', icon: Settings },
+      ]
+    },
+    {
+      title: 'ข้อมูลกลาง',
+      items: [
+        { to: '/admin/students', label: 'รายชื่อนักเรียน', icon: Users },
+        { to: '/admin/systemlog', label: 'บันทึกระบบ', icon: ShieldAlert },
+        { to: '/admin/settings', label: 'ตั้งค่าระบบกลาง', icon: Settings },
+      ]
+    }
   ];
 
   return (
@@ -334,27 +358,31 @@ function AdminLayout() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div className="text-[10px] font-bold text-muted uppercase tracking-wider px-3">เมนูการใช้งาน</div>
-              <nav className="flex flex-col space-y-1">
-                {navItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    className={({ isActive }) =>
-                      `flex items-center space-x-3 px-3 py-2.5 text-sm font-semibold rounded-lg transition-all ${
-                        isActive
-                          ? 'bg-primary text-white shadow-md'
-                          : 'text-muted hover:text-ink hover:bg-surface-soft'
-                      }`
-                    }
-                  >
-                    <item.icon size={18} />
-                    <span>{item.label}</span>
-                  </NavLink>
-                ))}
-              </nav>
+            <div className="space-y-4">
+              {navSections.map((sec, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="text-[10px] font-bold text-muted uppercase tracking-wider px-3">{sec.title}</div>
+                  <nav className="flex flex-col space-y-0.5">
+                    {sec.items.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        end={item.end}
+                        className={({ isActive }) =>
+                          `flex items-center space-x-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                            isActive
+                              ? 'bg-primary text-white shadow-md'
+                              : 'text-muted hover:text-ink hover:bg-surface-soft'
+                          }`
+                        }
+                      >
+                        <item.icon size={16} />
+                        <span>{item.label}</span>
+                      </NavLink>
+                    ))}
+                  </nav>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -387,26 +415,33 @@ function AdminLayout() {
                   </button>
                 </div>
 
-                <nav className="flex flex-col space-y-1">
-                  {navItems.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      end={item.end}
-                      onClick={() => setIsMenuOpen(false)}
-                      className={({ isActive }) =>
-                        `flex items-center space-x-3 px-4 py-2.5 text-sm font-semibold rounded-lg transition-all ${
-                          isActive
-                            ? 'bg-primary text-white shadow-md'
-                            : 'text-muted hover:text-ink hover:bg-surface-soft'
-                        }`
-                      }
-                    >
-                      <item.icon size={18} />
-                      <span>{item.label}</span>
-                    </NavLink>
+                <div className="space-y-4">
+                  {navSections.map((sec, idx) => (
+                    <div key={idx} className="space-y-1">
+                      <div className="text-[10px] font-bold text-muted uppercase tracking-wider px-3">{sec.title}</div>
+                      <nav className="flex flex-col space-y-0.5">
+                        {sec.items.map((item) => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            end={item.end}
+                            onClick={() => setIsMenuOpen(false)}
+                            className={({ isActive }) =>
+                              `flex items-center space-x-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                                isActive
+                                  ? 'bg-primary text-white shadow-md'
+                                  : 'text-muted hover:text-ink hover:bg-surface-soft'
+                              }`
+                            }
+                          >
+                            <item.icon size={16} />
+                            <span>{item.label}</span>
+                          </NavLink>
+                        ))}
+                      </nav>
+                    </div>
                   ))}
-                </nav>
+                </div>
               </div>
 
               <div className="space-y-6 pt-6 border-t border-hairline">
@@ -483,7 +518,7 @@ function AdminLayout() {
         <div className="flex-grow flex flex-col min-w-0">
           <main className="flex-grow px-4 sm:px-6 py-6 md:py-8 max-w-7xl w-full mx-auto">
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <Outlet />
+              <Outlet context={{ activeYear, activeTerm }} />
             </div>
           </main>
           
@@ -568,6 +603,8 @@ function App() {
           <Route path="/" element={<UserDashboard />} />
           <Route path="/scan/:token" element={<UserScanForm />} />
           <Route path="/scan" element={<UserScanForm />} />
+          <Route path="/assembly/scan/:token" element={<UserAssemblyScan />} />
+          <Route path="/assembly/scan" element={<UserAssemblyScan />} />
 
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminLayout />}>
@@ -577,6 +614,10 @@ function App() {
             <Route path="attendance" element={<AdminAttendanceList />} />
             <Route path="systemlog" element={<AdminSystemLogs />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="assembly" element={<AssemblyDashboard />} />
+            <Route path="assembly/attendance" element={<AssemblyAttendance />} />
+            <Route path="assembly/logs" element={<AssemblySystemLogs />} />
+            <Route path="assembly/settings" element={<AssemblySettings />} />
           </Route>
 
           {/* Wildcard 404 Route */}
