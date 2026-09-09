@@ -65,22 +65,22 @@ function ThaiTimePicker({ label, sublabel, value, onChange, accentColor = 'text-
   const presets = ['07:30', '07:45', '08:00', '08:30'];
 
   return (
-    <div className="bg-surface-soft/60 border border-hairline rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-3.5 shadow-2xs hover:border-hairline/80 transition-colors">
+    <div className="flex flex-col justify-between space-y-3.5 h-full">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 pb-1 border-b border-hairline/60">
         <div className="flex items-center gap-2 min-w-0">
           {Icon && <Icon size={16} className={accentColor} />}
           <label className="text-xs font-bold text-ink truncate">{label}</label>
         </div>
-        <span className={`text-xs font-extrabold font-mono bg-canvas px-2.5 py-1 rounded-lg border border-hairline shadow-2xs shrink-0 ${accentColor}`}>
+        <span className={`text-xs font-extrabold font-mono bg-surface-soft px-2.5 py-0.5 rounded-md border border-hairline shrink-0 ${accentColor}`}>
           {hour}:{minute} น.
         </span>
       </div>
 
       {/* Select boxes */}
       <div className="flex items-center gap-2">
-        <div className="flex-1 flex items-center bg-canvas border border-hairline rounded-xl px-3 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary shadow-2xs">
-          <span className="text-[10px] font-bold text-muted uppercase mr-2 shrink-0">ชั่วโมง:</span>
+        <div className="flex-1 flex items-center bg-surface-soft/50 border border-hairline rounded-lg px-2.5 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary shadow-2xs">
+          <span className="text-[10px] font-bold text-muted uppercase mr-1.5 shrink-0">ชั่วโมง:</span>
           <select
             value={hour}
             onChange={e => onChange(`${e.target.value}:${minute}`)}
@@ -94,8 +94,8 @@ function ThaiTimePicker({ label, sublabel, value, onChange, accentColor = 'text-
 
         <span className="text-muted font-extrabold text-base">:</span>
 
-        <div className="flex-1 flex items-center bg-canvas border border-hairline rounded-xl px-3 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary shadow-2xs">
-          <span className="text-[10px] font-bold text-muted uppercase mr-2 shrink-0">นาที:</span>
+        <div className="flex-1 flex items-center bg-surface-soft/50 border border-hairline rounded-lg px-2.5 py-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary shadow-2xs">
+          <span className="text-[10px] font-bold text-muted uppercase mr-1.5 shrink-0">นาที:</span>
           <select
             value={minute}
             onChange={e => onChange(`${hour}:${e.target.value}`)}
@@ -121,7 +121,7 @@ function ThaiTimePicker({ label, sublabel, value, onChange, accentColor = 'text-
               onClick={() => onChange(p)}
               className={`text-xs py-1.5 rounded-lg border font-mono font-semibold transition-all cursor-pointer text-center whitespace-nowrap ${
                 value === p
-                  ? 'bg-primary text-white border-primary shadow-xs font-bold'
+                  ? 'bg-ink text-canvas border-ink shadow-xs font-bold'
                   : 'bg-canvas border-hairline text-muted hover:text-ink hover:bg-surface-soft'
               }`}
             >
@@ -520,9 +520,9 @@ export default function AssemblySettings() {
             <span>กำหนดช่วงวันที่เปิดภาคเรียนและนับการเข้าแถว (วันเริ่ม - วันปิดเทอม)</span>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-hairline">
             {/* วันเริ่มต้นภาคเรียน (จำเป็น) */}
-            <div className="bg-surface-soft/60 border border-hairline rounded-2xl p-5 space-y-3.5 flex flex-col justify-between">
+            <div className="pb-6 lg:pb-0 lg:pr-6 space-y-4 flex flex-col justify-between">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-bold text-ink flex items-center gap-1.5">
@@ -540,7 +540,7 @@ export default function AssemblySettings() {
                 </p>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 pt-2">
                 <ThaiDatePicker
                   required
                   value={settings.start_date || ''}
@@ -555,7 +555,7 @@ export default function AssemblySettings() {
             </div>
 
             {/* การสิ้นสุดภาคเรียน (วันปิดเทอม) */}
-            <div className="bg-surface-soft/60 border border-hairline rounded-2xl p-5 space-y-3.5 flex flex-col justify-between">
+            <div className="pt-6 lg:pt-0 lg:pl-6 space-y-4 flex flex-col justify-between">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-ink block">
                   การสิ้นสุดภาคเรียน (วันปิดเทอม)
@@ -566,10 +566,10 @@ export default function AssemblySettings() {
               </div>
 
               <div className="space-y-2.5">
-                <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                <label className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
                   settings.end_date_type === 'manual'
-                    ? 'border-primary bg-canvas shadow-xs'
-                    : 'border-hairline bg-canvas/60 hover:bg-canvas'
+                    ? 'border-primary/50 bg-primary/[0.03] shadow-2xs'
+                    : 'border-hairline hover:bg-surface-soft/50'
                 }`}>
                   <input
                     type="radio"
@@ -577,7 +577,7 @@ export default function AssemblySettings() {
                     value="manual"
                     checked={settings.end_date_type === 'manual'}
                     onChange={() => setSettings({ ...settings, end_date_type: 'manual' })}
-                    className="mt-0.5 text-primary"
+                    className="mt-0.5 text-primary focus:ring-primary h-4 w-4 shrink-0"
                   />
                   <div className="space-y-0.5">
                     <span className="text-xs font-bold text-ink block">จนกว่าจะสั่งปิดภาคเรียนเอง (ปิดเทอมตามประกาศ) - แนะนำ</span>
@@ -587,10 +587,10 @@ export default function AssemblySettings() {
                   </div>
                 </label>
 
-                <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                <label className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
                   settings.end_date_type === 'specific'
-                    ? 'border-primary bg-canvas shadow-xs'
-                    : 'border-hairline bg-canvas/60 hover:bg-canvas'
+                    ? 'border-primary/50 bg-primary/[0.03] shadow-2xs'
+                    : 'border-hairline hover:bg-surface-soft/50'
                 }`}>
                   <input
                     type="radio"
@@ -598,7 +598,7 @@ export default function AssemblySettings() {
                     value="specific"
                     checked={settings.end_date_type === 'specific'}
                     onChange={() => setSettings({ ...settings, end_date_type: 'specific' })}
-                    className="mt-0.5 text-primary"
+                    className="mt-0.5 text-primary focus:ring-primary h-4 w-4 shrink-0"
                   />
                   <div className="space-y-2 w-full">
                     <div className="space-y-0.5">
@@ -635,33 +635,39 @@ export default function AssemblySettings() {
             <span>กำหนดช่วงเวลาเข้าแถวและวันทำการ (รูปแบบ 24 ชั่วโมง)</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-            <ThaiTimePicker
-              label="เวลาเริ่มเข้าแถว (เปิดรับ)"
-              sublabel="ก่อนเวลานี้ระบบจะไม่เปิดให้สแกนเข้าแถว"
-              value={settings.start_time || '07:30'}
-              onChange={val => setSettings({ ...settings, start_time: val })}
-              accentColor="text-emerald-600"
-              icon={Clock}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-hairline">
+            <div className="pb-5 md:pb-0 md:pr-6">
+              <ThaiTimePicker
+                label="เวลาเริ่มเข้าแถว (เปิดรับ)"
+                sublabel="ก่อนเวลานี้ระบบจะไม่เปิดให้สแกนเข้าแถว"
+                value={settings.start_time || '07:30'}
+                onChange={val => setSettings({ ...settings, start_time: val })}
+                accentColor="text-emerald-600"
+                icon={Clock}
+              />
+            </div>
 
-            <ThaiTimePicker
-              label="เวลาเริ่มตัดสาย (สถานะมาสาย)"
-              sublabel="นักศึกษาที่สแกนหลังเวลานี้จะถือว่า 'มาสาย'"
-              value={settings.late_time || '08:00'}
-              onChange={val => setSettings({ ...settings, late_time: val })}
-              accentColor="text-amber-600"
-              icon={AlertTriangle}
-            />
+            <div className="py-5 md:py-0 md:px-6">
+              <ThaiTimePicker
+                label="เวลาเริ่มตัดสาย (สถานะมาสาย)"
+                sublabel="นักศึกษาที่สแกนหลังเวลานี้จะถือว่า 'มาสาย'"
+                value={settings.late_time || '08:00'}
+                onChange={val => setSettings({ ...settings, late_time: val })}
+                accentColor="text-amber-600"
+                icon={AlertTriangle}
+              />
+            </div>
 
-            <ThaiTimePicker
-              label="เวลาปิดรับ (สิ้นสุดการเข้าแถว)"
-              sublabel="พ้นเวลานี้ระบบจะปิดรับสแกนอัตโนมัติ"
-              value={settings.close_time || '08:30'}
-              onChange={val => setSettings({ ...settings, close_time: val })}
-              accentColor="text-rose-600"
-              icon={XCircle}
-            />
+            <div className="pt-5 md:pt-0 md:pl-6">
+              <ThaiTimePicker
+                label="เวลาปิดรับ (สิ้นสุดการเข้าแถว)"
+                sublabel="พ้นเวลานี้ระบบจะปิดรับสแกนอัตโนมัติ"
+                value={settings.close_time || '08:30'}
+                onChange={val => setSettings({ ...settings, close_time: val })}
+                accentColor="text-rose-600"
+                icon={XCircle}
+              />
+            </div>
           </div>
 
           {/* Active Days Checkboxes */}
@@ -699,15 +705,15 @@ export default function AssemblySettings() {
             <span>รูปแบบ QR Code สำหรับการเข้าแถว</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-hairline">
+            <div className="pb-5 md:pb-0 md:pr-6 space-y-3">
               <label className="text-xs font-bold text-ink block">เลือกโหมดการแสดง QR Code</label>
               
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
                   settings.qr_mode === 'static'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-hairline bg-surface-soft hover:bg-surface-soft/80'
+                    ? 'border-primary/50 bg-primary/[0.03] shadow-2xs'
+                    : 'border-hairline hover:bg-surface-soft/50'
                 }`}>
                   <input
                     type="radio"
@@ -715,7 +721,7 @@ export default function AssemblySettings() {
                     value="static"
                     checked={settings.qr_mode === 'static'}
                     onChange={() => setSettings({ ...settings, qr_mode: 'static' })}
-                    className="mt-0.5 text-primary"
+                    className="mt-0.5 text-primary focus:ring-primary h-4 w-4 shrink-0"
                   />
                   <div className="space-y-0.5">
                     <span className="text-xs font-bold text-ink block">📌 ป้ายถาวร (Static QR Code) - แนะนำ</span>
@@ -727,8 +733,8 @@ export default function AssemblySettings() {
 
                 <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
                   settings.qr_mode === 'dynamic'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-hairline bg-surface-soft hover:bg-surface-soft/80'
+                    ? 'border-primary/50 bg-primary/[0.03] shadow-2xs'
+                    : 'border-hairline hover:bg-surface-soft/50'
                 }`}>
                   <input
                     type="radio"
@@ -736,7 +742,7 @@ export default function AssemblySettings() {
                     value="dynamic"
                     checked={settings.qr_mode === 'dynamic'}
                     onChange={() => setSettings({ ...settings, qr_mode: 'dynamic' })}
-                    className="mt-0.5 text-primary"
+                    className="mt-0.5 text-primary focus:ring-primary h-4 w-4 shrink-0"
                   />
                   <div className="space-y-0.5">
                     <span className="text-xs font-bold text-ink block">⚡ หมุนเวียนรายวัน (Daily Dynamic QR)</span>
@@ -748,7 +754,7 @@ export default function AssemblySettings() {
               </div>
 
               {settings.qr_mode === 'static' && (
-                <div className="pt-2 flex items-center justify-between bg-surface-soft p-3 rounded-lg border border-hairline">
+                <div className="pt-2 flex items-center justify-between bg-surface-soft/60 p-3 rounded-xl border border-hairline">
                   <div className="text-xs">
                     <span className="text-muted block text-[10px]">Static Token ปัจจุบัน:</span>
                     <span className="font-mono font-bold text-ink">{settings.static_token || '-'}</span>
@@ -756,7 +762,7 @@ export default function AssemblySettings() {
                   <button
                     type="button"
                     onClick={handleRegenerateToken}
-                    className="px-2.5 py-1 text-xs border border-hairline rounded bg-canvas text-muted hover:text-ink font-bold transition-colors cursor-pointer"
+                    className="px-2.5 py-1 text-xs border border-hairline rounded-lg bg-canvas text-muted hover:text-ink font-bold transition-colors cursor-pointer shadow-2xs"
                   >
                     สุ่มรหัสใหม่
                   </button>
@@ -765,9 +771,9 @@ export default function AssemblySettings() {
             </div>
 
             {/* QR Preview Box */}
-            <div className="flex flex-col items-center justify-center p-5 bg-surface-soft rounded-xl border border-hairline space-y-3">
+            <div className="pt-5 md:pt-0 md:pl-6 flex flex-col items-center justify-center space-y-3">
               <span className="text-xs font-bold text-muted">ตัวอย่าง QR Code สำหรับนักศึกษา</span>
-              <div className="p-3 bg-white border border-hairline rounded-xl shadow-xs">
+              <div className="p-3.5 bg-canvas border border-hairline rounded-2xl shadow-xs">
                 <QRCodeSVG
                   value={`${window.location.origin}/assembly/scan/${settings.qr_mode === 'static' ? settings.static_token : settings.today_daily_token || ''}`}
                   size={140}
