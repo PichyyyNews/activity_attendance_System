@@ -5,13 +5,11 @@ import {
   Camera,
   RefreshCw,
   CheckCircle2,
-  MapPin,
   ShieldAlert,
   Sparkles,
   CheckSquare,
   ArrowRight,
-  XCircle,
-  Fingerprint
+  XCircle
 } from 'lucide-react';
 import { getHardwareFingerprint, getDeviceSignals } from '../utils/fingerprint';
 import type { DeviceSignals } from '../utils/fingerprint';
@@ -146,7 +144,6 @@ function UserAssemblyScan() {
 
   // GPS states
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [gpsError, setGpsError] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
 
   // Submission & summary states
@@ -204,34 +201,40 @@ function UserAssemblyScan() {
     return () => clearInterval(timer);
   }, []);
 
-  // 3. Auto-fetch GPS location if required
-  const requestGpsLocation = () => {
-    if (!navigator.geolocation) {
-      setGpsError('เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง GPS');
-      return;
-    }
-    setGpsLoading(true);
-    setGpsError('');
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setCoords({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude
-        });
-        setGpsLoading(false);
-      },
-      err => {
-        console.warn('GPS error:', err);
-        setGpsError('กรุณาเปิด GPS และอนุญาตการเข้าถึงตำแหน่งเพื่อเช็กชื่อเข้าแถว');
-        setGpsLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+  // 3. Background GPS location helper
+  const getCurrentCoordinates = (): Promise<{ latitude: number; longitude: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง GPS'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          resolve({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          });
+        },
+        () => {
+          reject(new Error('กรุณาเปิดระบบ GPS และอนุญาตสิทธิ์การเข้าถึงตำแหน่งเพื่อเช็กชื่อเข้าแถว'));
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
   };
 
   useEffect(() => {
-    if (assemblyStatus?.requireGps) {
-      requestGpsLocation();
+    if (assemblyStatus?.requireGps && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          setCoords({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
     }
   }, [assemblyStatus?.requireGps]);
 
@@ -354,9 +357,19 @@ function UserAssemblyScan() {
       return;
     }
 
-    if (assemblyStatus?.requireGps && !coords) {
-      setSubmitError('กรุณาเปิดระบบ GPS เพื่อยืนยันว่าคุณอยู่ในบริเวณลานเข้าแถว');
-      return;
+    let userCoords = coords;
+    if (assemblyStatus?.requireGps && !userCoords) {
+      setGpsLoading(true);
+      setSubmitError('');
+      try {
+        userCoords = await getCurrentCoordinates();
+        setCoords(userCoords);
+      } catch (err: any) {
+        setSubmitError(err.message || 'กรุณาเปิดระบบ GPS เพื่อยืนยันว่าคุณอยู่ในบริเวณลานเข้าแถว');
+        setGpsLoading(false);
+        return;
+      }
+      setGpsLoading(false);
     }
 
     setIsSubmitting(true);
@@ -374,8 +387,8 @@ function UserAssemblyScan() {
           screen: deviceSignals.screenInfo,
           gpu: deviceSignals.gpuRenderer
         }) : null,
-        latitude: coords ? coords.latitude : null,
-        longitude: coords ? coords.longitude : null,
+        latitude: userCoords ? userCoords.latitude : null,
+        longitude: userCoords ? userCoords.longitude : null,
         photo_base64: photoBase64
       };
 
@@ -587,20 +600,7 @@ function UserAssemblyScan() {
               <Sparkles className="text-primary animate-pulse w-6 h-6" />
             </div>
             <div className="space-y-1">
-              <span className={`inline-block text-[10px] sm:text-[11px] font-extrabold px-2 py-0.5 rounded uppercase tracking-wider ${
-                isSessionClosed
-                  ? 'bg-error text-white'
-                  : assemblyStatus?.currentStatus === 'late'
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-primary text-white'
-              }`}>
-                {isSessionClosed
-                  ? 'ปิดรับการเช็กชื่อเข้าแถว'
-                  : assemblyStatus?.currentStatus === 'late'
-                  ? 'รอบเช็กชื่อเข้าแถว (มาสาย)'
-                  : 'รอบเช็กชื่อเข้าแถวประจำวัน'}
-              </span>
-              <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight mt-1">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
+              <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
               {assemblyStatus && (
                 <p className={`text-[11px] sm:text-xs font-semibold mt-0.5 sm:mt-1 ${
                   isSessionClosed ? 'text-error' : assemblyStatus?.currentStatus === 'late' ? 'text-amber-600' : 'text-error'
@@ -838,56 +838,6 @@ function UserAssemblyScan() {
               )}
             </div>
 
-            {/* GPS Status Indicator */}
-            {assemblyStatus?.requireGps && (
-              <div className="bg-surface-soft border border-hairline rounded-md p-3 text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-semibold text-ink">
-                    <MapPin size={14} className={coords ? 'text-success' : 'text-amber-500'} />
-                    <span>ตำแหน่งพิกัด (GPS)</span>
-                  </div>
-                  {gpsLoading ? (
-                    <span className="text-[11px] text-muted flex items-center gap-1">
-                      <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
-                      <span>กำลังดึงพิกัด...</span>
-                    </span>
-                  ) : coords ? (
-                    <span className="text-[11px] font-bold text-success flex items-center gap-1">
-                      <CheckCircle2 size={13} />
-                      <span>ระบุตำแหน่งแล้ว</span>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={isSessionClosed}
-                      onClick={requestGpsLocation}
-                      className="text-[11px] text-primary hover:underline font-bold cursor-pointer"
-                    >
-                      กดอนุญาตพิกัด
-                    </button>
-                  )}
-                </div>
-
-                {gpsError && (
-                  <p className="text-[11px] text-error font-medium">{gpsError}</p>
-                )}
-
-                {assemblyStatus?.locations && assemblyStatus.locations.length > 0 && (
-                  <p className="text-[10px] text-muted">
-                    บริเวณที่กำหนด: {assemblyStatus.locations.map((l: any) => `${l.name} (${l.radius} ม.)`).join(', ')}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Security Indicator */}
-            {assemblyStatus?.requireDeviceFingerprint && (
-              <div className="flex items-center space-x-1.5 text-[11px] text-muted-soft">
-                <Fingerprint size={13} className="text-primary" />
-                <span>ระบบเปิดการตรวจสอบความปลอดภัยของอุปกรณ์เดี่ยว</span>
-              </div>
-            )}
-
             {/* Submit Button */}
             <button
               type="submit"
@@ -904,6 +854,8 @@ function UserAssemblyScan() {
                   ? 'ปิดรับการเช็กชื่อเข้าแถวแล้ว'
                   : isSubmitting
                     ? 'กำลังบันทึกข้อมูล...'
+                    : gpsLoading
+                    ? 'กำลังดึงตำแหน่ง GPS...'
                     : 'ยืนยันการเช็กชื่อเข้าแถว'}
               </span>
             </button>
