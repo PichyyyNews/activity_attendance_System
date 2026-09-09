@@ -18,6 +18,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import ThaiDatePicker from '../../components/ThaiDatePicker';
+import Pagination from '../../components/Pagination';
 
 interface FlaggedDetail {
   student_id: string;
@@ -192,6 +193,28 @@ export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: p
   }, [rejections, search]);
 
   const flaggedCount = useMemo(() => logs.filter(l => l.is_flagged).length, [logs]);
+
+  // Pagination state (default 100 rows per page as requested)
+  const [pageSize, setPageSize] = useState<number>(100);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, showFlaggedOnly, selectedDate, activeTab, pageSize]);
+
+  const totalItems = activeTab === 'attendances' ? filteredLogs.length : filteredRejections.length;
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+
+  const paginatedLogs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredLogs.slice(start, start + pageSize);
+  }, [filteredLogs, currentPage, pageSize]);
+
+  const paginatedRejections = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRejections.slice(start, start + pageSize);
+  }, [filteredRejections, currentPage, pageSize]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-in fade-in duration-300">
@@ -389,12 +412,13 @@ export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: p
                     <td colSpan={9} className="py-12 text-center text-muted">ไม่พบบันทึกการเข้าแถวตามเงื่อนไข</td>
                   </tr>
                 ) : (
-                  filteredLogs.map((log, idx) => {
+                  paginatedLogs.map((log, idx) => {
                     const isExpanded = !!expandedRows[log.id];
+                    const rowNumber = (currentPage - 1) * pageSize + idx + 1;
                     return (
                       <Fragment key={log.id}>
                         <tr className={`hover:bg-surface-soft/40 transition-colors ${log.is_flagged ? 'bg-rose-50/20' : ''}`}>
-                          <td className="py-3 px-4 text-center font-mono text-muted">{idx + 1}</td>
+                          <td className="py-3 px-4 text-center font-mono text-muted">{rowNumber}</td>
                           <td className="py-3 px-4 text-[11px] font-mono text-muted">
                             {formatThaiDateTime(log.attended_at)}
                           </td>
@@ -516,6 +540,17 @@ export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: p
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredLogs.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[50, 100, 200, 500]}
+          />
         </div>
       )}
 
@@ -544,46 +579,60 @@ export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: p
                     <td colSpan={6} className="py-12 text-center text-muted">ไม่พบรายการที่ถูกปฏิเสธ</td>
                   </tr>
                 ) : (
-                  filteredRejections.map((rej, idx) => (
-                    <tr key={rej.id} className="hover:bg-surface-soft/40 transition-colors">
-                      <td className="py-3 px-4 text-center font-mono text-muted">{idx + 1}</td>
-                      <td className="py-3 px-4 text-[11px] font-mono text-muted">
-                        {formatThaiDateTime(rej.rejected_at)}
-                      </td>
-                      <td className="py-3 px-4 font-mono font-bold text-ink">{rej.student_id}</td>
-                      <td className="py-3 px-4">
-                        <span className="font-semibold text-ink block">
-                          {rej.prefix || ''}{rej.first_name || ''} {rej.last_name || ''}
-                        </span>
-                        {rej.major_name && (
-                          <span className="text-[10px] text-muted block">
-                            {rej.level} {rej.year} • {rej.major_name} ({rej.room})
+                  paginatedRejections.map((rej, idx) => {
+                    const rowNumber = (currentPage - 1) * pageSize + idx + 1;
+                    return (
+                      <tr key={rej.id} className="hover:bg-surface-soft/40 transition-colors">
+                        <td className="py-3 px-4 text-center font-mono text-muted">{rowNumber}</td>
+                        <td className="py-3 px-4 text-[11px] font-mono text-muted">
+                          {formatThaiDateTime(rej.rejected_at)}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-ink">{rej.student_id}</td>
+                        <td className="py-3 px-4">
+                          <span className="font-semibold text-ink block">
+                            {rej.prefix || ''}{rej.first_name || ''} {rej.last_name || ''}
                           </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 font-semibold text-rose-700">
-                        {rej.rejection_reason}
-                      </td>
-                      <td className="py-3 px-4 space-y-0.5">
-                        {rej.device_uuid && (
-                          <span className="font-mono text-[10px] text-muted flex items-center gap-1">
-                            <Smartphone size={11} className="shrink-0 text-primary" />
-                            <span className="truncate max-w-[120px]">{rej.device_uuid.slice(0, 10)}...</span>
-                          </span>
-                        )}
-                        {rej.ip_address && (
-                          <span className="font-mono text-[10px] text-muted-soft flex items-center gap-1">
-                            <Globe size={11} className="shrink-0" />
-                            <span>{rej.ip_address}</span>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                          {rej.major_name && (
+                            <span className="text-[10px] text-muted block">
+                              {rej.level} {rej.year} • {rej.major_name} ({rej.room})
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-rose-700">
+                          {rej.rejection_reason}
+                        </td>
+                        <td className="py-3 px-4 space-y-0.5">
+                          {rej.device_uuid && (
+                            <span className="font-mono text-[10px] text-muted flex items-center gap-1">
+                              <Smartphone size={11} className="shrink-0 text-primary" />
+                              <span className="truncate max-w-[120px]">{rej.device_uuid.slice(0, 10)}...</span>
+                            </span>
+                          )}
+                          {rej.ip_address && (
+                            <span className="font-mono text-[10px] text-muted-soft flex items-center gap-1">
+                              <Globe size={11} className="shrink-0" />
+                              <span>{rej.ip_address}</span>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredRejections.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[50, 100, 200, 500]}
+          />
         </div>
       )}
 

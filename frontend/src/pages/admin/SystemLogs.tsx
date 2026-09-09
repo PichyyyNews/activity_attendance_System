@@ -4,6 +4,7 @@ import {
   ShieldAlert, RefreshCw, Search, HardDrive, 
   Globe, AlertTriangle, CheckCircle, Info, ChevronDown, ChevronUp 
 } from 'lucide-react';
+import Pagination from '../../components/Pagination';
 
 interface FlaggedDetail {
   student_id: string;
@@ -273,6 +274,20 @@ export default function AdminSystemLogs() {
   const uniqueIps = new Set(logs.map(l => l.ip_address).filter(Boolean)).size;
   const uniqueDevices = new Set(logs.map(l => l.device_uuid).filter(Boolean)).size;
 
+  // Pagination (default 100 rows per page as requested)
+  const [pageSize, setPageSize] = useState<number>(100);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedWeek, showFlaggedOnly, activeTab, pageSize]);
+
+  const totalItems = activeTab === 'attendances' ? filteredLogs.length : filteredRejections.length;
+  const totalPages = Math.ceil(totalItems / pageSize) || 1;
+
+  const paginatedLogs = filteredLogs.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedRejections = filteredRejections.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -453,7 +468,7 @@ export default function AdminSystemLogs() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline text-xs">
-                  {filteredLogs.map(log => {
+                  {paginatedLogs.map(log => {
                     const isExpanded = !!expandedRows[log.id];
                     return (
                       <>
@@ -581,7 +596,7 @@ export default function AdminSystemLogs() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline text-xs">
-                  {filteredRejections.map(rej => {
+                  {paginatedRejections.map(rej => {
                     const isExpanded = !!expandedRows[rej.id];
                     return (
                       <>
@@ -616,14 +631,14 @@ export default function AdminSystemLogs() {
                             {rej.hardware_fingerprint ? (
                               <div className="flex items-center gap-1.5 font-mono text-[10px]" title={`Hardware FP: ${rej.hardware_fingerprint}`}>
                                 <span className="text-red-700 bg-red-50 border border-red-100 rounded px-1.5 py-0.5 font-semibold">
-                                  HW: {rej.hardware_fingerprint.substring(0, 10)}...
+                                   HW: {rej.hardware_fingerprint.substring(0, 10)}...
                                 </span>
                                 {renderConfidenceScore(rej.confidence_score)}
                               </div>
                             ) : rej.device_uuid?.startsWith('hw_') ? (
                               <div className="flex items-center gap-1.5 font-mono text-[10px]" title={`Hardware FP: ${rej.device_uuid}`}>
                                 <span className="text-red-700 bg-red-50 border border-red-100 rounded px-1.5 py-0.5 font-semibold">
-                                  HW: {rej.device_uuid.substring(0, 10)}...
+                                   HW: {rej.device_uuid.substring(0, 10)}...
                                 </span>
                                 {renderConfidenceScore(rej.confidence_score)}
                               </div>
@@ -662,6 +677,19 @@ export default function AdminSystemLogs() {
               </table>
             </div>
           )
+        )}
+
+        {/* Pagination Controls */}
+        {!loading && (activeTab === 'attendances' ? filteredLogs.length > 0 : filteredRejections.length > 0) && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[50, 100, 200, 500]}
+          />
         )}
       </div>
     </div>
