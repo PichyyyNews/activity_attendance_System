@@ -5,17 +5,53 @@ import {
   Camera,
   RefreshCw,
   CheckCircle2,
-  AlertTriangle,
-  Clock,
   MapPin,
-  ShieldCheck,
-  ChevronRight,
+  ShieldAlert,
+  Sparkles,
+  CheckSquare,
   ArrowRight,
   XCircle,
   Fingerprint
 } from 'lucide-react';
 import { getHardwareFingerprint, getDeviceSignals } from '../utils/fingerprint';
 import type { DeviceSignals } from '../utils/fingerprint';
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error in UserAssemblyScan", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 max-w-md mx-auto my-10 bg-error/15 border border-error/30 text-error rounded-lg space-y-3">
+          <h1 className="text-lg font-bold">⚠️ เกิดข้อผิดพลาดในการโหลดหน้าจอ (React Crash)</h1>
+          <p className="text-xs font-mono bg-canvas p-3 rounded border border-hairline overflow-auto max-h-40">
+            {this.state.error?.toString() || 'Unknown Error'}
+          </p>
+          <p className="text-xs text-muted">กรุณาแจ้งข้อความแสดงความผิดพลาดนี้ให้กับผู้ดูแลระบบ</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-error text-white text-xs font-bold rounded-md hover:bg-error-active transition-colors cursor-pointer"
+          >
+            โหลดหน้าจอใหม่
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const safeLocalStorage = {
   getItem: (key: string): string => {
@@ -86,7 +122,7 @@ function compressImage(fileOrBase64: File | string, maxWidth = 800, maxHeight = 
   });
 }
 
-export default function UserAssemblyScan() {
+function UserAssemblyScan() {
   const { token: urlToken } = useParams<{ token?: string }>();
 
   // Assembly system status
@@ -169,26 +205,35 @@ export default function UserAssemblyScan() {
   }, []);
 
   // 3. Auto-fetch GPS location if required
-  useEffect(() => {
-    if (assemblyStatus?.requireGps && navigator.geolocation) {
-      setGpsLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          setCoords({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude
-          });
-          setGpsLoading(false);
-        },
-        err => {
-          console.warn('GPS error:', err);
-          setGpsError('กรุณาเปิด GPS และอนุญาตการเข้าถึงตำแหน่งเพื่อเช็กชื่อเข้าแถว');
-          setGpsLoading(false);
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
+  const requestGpsLocation = () => {
+    if (!navigator.geolocation) {
+      setGpsError('เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง GPS');
+      return;
     }
-  }, [assemblyStatus]);
+    setGpsLoading(true);
+    setGpsError('');
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setCoords({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        });
+        setGpsLoading(false);
+      },
+      err => {
+        console.warn('GPS error:', err);
+        setGpsError('กรุณาเปิด GPS และอนุญาตการเข้าถึงตำแหน่งเพื่อเช็กชื่อเข้าแถว');
+        setGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  useEffect(() => {
+    if (assemblyStatus?.requireGps) {
+      requestGpsLocation();
+    }
+  }, [assemblyStatus?.requireGps]);
 
   // 4. Student lookup when 11 digits typed
   useEffect(() => {
@@ -358,72 +403,65 @@ export default function UserAssemblyScan() {
     }
   };
 
+  const isSessionClosed = assemblyStatus ? !assemblyStatus.isOpen : false;
+  const sessionClosedReason = assemblyStatus?.reason || 'ระบบปิดรับการเช็กชื่อเข้าแถวแล้ว';
+
   return (
-    <div className="min-h-screen bg-canvas flex flex-col justify-between py-6 px-3 sm:px-6">
-      {/* Top Brand Header */}
-      <div className="max-w-md w-full mx-auto flex items-center justify-between pb-4 border-b border-hairline">
-        <div className="flex items-center space-x-2.5">
-          <img src="/logo.svg" alt="AAS Logo" className="w-6 h-6 object-contain" />
+    <div className="min-h-screen bg-canvas flex flex-col justify-between py-4 px-3 sm:py-12 sm:px-6">
+      {/* Top Brand Logo - Perfectly centered matching UserScanForm */}
+      <div className="flex justify-center">
+        <div className="flex items-center space-x-2">
+          <img src="/logo.svg" alt="AAS Logo" className="w-5 h-5 object-contain" />
           <span className="font-extrabold text-base text-ink tracking-tight">AAS</span>
-          <span className="bg-primary/10 text-primary border border-primary/20 text-[10px] font-bold px-2 py-0.5 rounded-full">
-            เข้าแถวหน้าเสาธง
-          </span>
         </div>
-        <Link
-          to="/"
-          className="text-xs text-muted hover:text-ink flex items-center gap-1 transition-colors"
-        >
-          <span>หน้าหลัก</span>
-          <ChevronRight size={14} />
-        </Link>
       </div>
 
       {/* Success View */}
       {isSuccess ? (
-        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-xl p-5 sm:p-7 shadow-[0_8px_32px_rgba(0,0,0,0.04)] text-center space-y-5 animate-in zoom-in-95 duration-200">
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-4 sm:p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] text-center space-y-4 sm:space-y-6 animate-in zoom-in-95 duration-200">
           <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto border ${
             checkInResult?.status === 'present'
-              ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
-              : 'bg-amber-50 text-amber-600 border-amber-200'
+              ? 'bg-success/15 text-success border-success/30'
+              : 'bg-amber-500/15 text-amber-600 border-amber-500/30'
           }`}>
-            <CheckCircle2 size={34} />
+            <CheckCircle2 size={32} />
           </div>
 
-          <div className="space-y-1">
-            <h1 className="text-xl font-bold text-ink">
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-ink tracking-tight">
               {checkInResult?.status === 'present' ? 'เช็กชื่อเข้าแถวสำเร็จ!' : 'เช็กชื่อเข้าแถวสำเร็จ (มาสาย)'}
             </h1>
-            <p className="text-xs text-muted">
+            <p className="text-muted text-sm">
               {checkInResult?.status === 'present'
-                ? 'ระบบบันทึกสถานะ "มาทันเวลา" เรียบร้อยแล้ว'
+                ? 'ระบบได้บันทึกสถานะ "มาทันเวลา" เรียบร้อยแล้ว'
                 : 'คุณสแกนหลังเวลาที่กำหนด ระบบบันทึกสถานะ "มาสาย"'}
             </p>
           </div>
 
           {/* Student Info Card */}
-          <div className="bg-surface-soft border border-hairline rounded-lg p-3.5 text-left text-xs space-y-2">
-            <div className="flex justify-between border-b border-hairline pb-1.5">
+          <div className="bg-surface-soft border border-hairline rounded-md p-4 text-left text-sm space-y-2.5">
+            <div className="flex justify-between border-b border-hairline pb-2">
               <span className="text-muted">ชื่อ-นามสกุล</span>
               <span className="font-semibold text-ink">
                 {checkInResult?.student?.prefix}{checkInResult?.student?.first_name} {checkInResult?.student?.last_name}
               </span>
             </div>
-            <div className="flex justify-between border-b border-hairline pb-1.5">
+            <div className="flex justify-between border-b border-hairline pb-2">
               <span className="text-muted">รหัสนักศึกษา</span>
-              <span className="font-mono font-bold text-ink">{checkInResult?.student?.student_id}</span>
+              <span className="font-mono font-semibold text-ink">{checkInResult?.student?.student_id}</span>
             </div>
-            <div className="flex justify-between border-b border-hairline pb-1.5">
-              <span className="text-muted">ระดับชั้น / สาขา</span>
-              <span className="font-medium text-ink">
+            <div className="flex justify-between border-b border-hairline pb-2">
+              <span className="text-muted">กลุ่มเรียน / สาขาวิชา</span>
+              <span className="font-semibold text-ink text-right text-xs">
                 {checkInResult?.student?.level} {checkInResult?.student?.year} • {checkInResult?.student?.major_name} ({checkInResult?.student?.room})
               </span>
             </div>
             <div className="flex justify-between items-center pt-0.5">
-              <span className="text-muted">สถานะการบันทึก</span>
-              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+              <span className="text-muted">สถานะการเข้าแถว</span>
+              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                 checkInResult?.status === 'present'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-amber-100 text-amber-800'
+                  ? 'bg-success/15 text-success border border-success/30'
+                  : 'bg-amber-500/15 text-amber-700 border border-amber-500/30'
               }`}>
                 {checkInResult?.status === 'present' ? '🟢 ทันเวลา' : '🟡 มาสาย'}
               </span>
@@ -459,13 +497,13 @@ export default function UserAssemblyScan() {
 
             {/* Assembly Stats */}
             {summaryTab === 'assembly' && studentSummary?.summary && (
-              <div className="bg-canvas border border-hairline rounded-lg p-3 text-left space-y-3 animate-in fade-in duration-200">
+              <div className="bg-canvas border border-hairline rounded-md p-3 text-left space-y-3 animate-in fade-in duration-200">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-ink">สถิติการเข้าแถวรวม</span>
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                     studentSummary.summary.isPass
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      ? 'bg-success/15 text-success border border-success/30'
+                      : 'bg-error/15 text-error border border-error/30'
                   }`}>
                     {studentSummary.summary.isPass ? 'ผ่านเกณฑ์ (≥80%)' : 'ยังไม่ผ่านเกณฑ์'}
                   </span>
@@ -474,7 +512,7 @@ export default function UserAssemblyScan() {
                 <div className="grid grid-cols-4 gap-1.5 text-center">
                   <div className="bg-surface-soft p-2 rounded border border-hairline">
                     <div className="text-[10px] text-muted">มา</div>
-                    <div className="text-sm font-bold text-emerald-600">{studentSummary.summary.presentCount}</div>
+                    <div className="text-sm font-bold text-success">{studentSummary.summary.presentCount}</div>
                   </div>
                   <div className="bg-surface-soft p-2 rounded border border-hairline">
                     <div className="text-[10px] text-muted">สาย</div>
@@ -486,7 +524,7 @@ export default function UserAssemblyScan() {
                   </div>
                   <div className="bg-surface-soft p-2 rounded border border-hairline">
                     <div className="text-[10px] text-muted">ขาด</div>
-                    <div className="text-sm font-bold text-rose-600">{studentSummary.summary.absentCount}</div>
+                    <div className="text-sm font-bold text-error">{studentSummary.summary.absentCount}</div>
                   </div>
                 </div>
 
@@ -499,7 +537,7 @@ export default function UserAssemblyScan() {
 
             {/* Activity Stats */}
             {summaryTab === 'activity' && (
-              <div className="bg-canvas border border-hairline rounded-lg p-3 text-left space-y-2 animate-in fade-in duration-200">
+              <div className="bg-canvas border border-hairline rounded-md p-3 text-left space-y-2 animate-in fade-in duration-200">
                 <span className="text-xs font-bold text-ink">ประวัติการเข้าร่วมคาบกิจกรรม</span>
                 {Array.isArray(activitySummary) && activitySummary.length > 0 ? (
                   <div className="space-y-1.5">
@@ -510,7 +548,7 @@ export default function UserAssemblyScan() {
                       {activitySummary.slice(0, 5).map((a: any) => (
                         <div key={a.id} className="py-1 flex justify-between">
                           <span className="text-muted">ครั้งที่ {a.week_number} ({a.session_title})</span>
-                          <span className="text-emerald-600 font-medium">เข้าแล้ว</span>
+                          <span className="text-success font-medium">เข้าแล้ว</span>
                         </div>
                       ))}
                     </div>
@@ -526,78 +564,119 @@ export default function UserAssemblyScan() {
 
           <div className="pt-2">
             <Link
-              to="/"
-              className="w-full py-2.5 bg-ink text-canvas hover:bg-black text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all"
+              to={`/?id=${checkInResult?.student?.student_id || studentId}`}
+              className="w-full h-11 bg-primary hover:bg-primary-active text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all"
             >
-              <span>เสร็จสิ้น / กลับหน้าหลัก</span>
-              <ArrowRight size={14} />
+              <span>ตรวจสอบสถิติการเช็กชื่อของฉัน</span>
+              <ArrowRight size={15} />
             </Link>
           </div>
         </div>
+      ) : statusLoading ? (
+        /* Loading View */
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-12 text-center space-y-4 shadow-[0_8px_32px_rgba(0,0,0,0.04)]">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="text-sm text-muted font-semibold">กำลังตรวจสอบข้อมูลรอบการเข้าแถวและประวัติเครื่อง...</p>
+        </div>
       ) : (
-        /* Check-in Form View */
-        <div className="max-w-md w-full mx-auto my-4 bg-canvas border border-hairline rounded-xl p-5 sm:p-7 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-5">
-          {/* Header & Status Indicator */}
-          <div className="space-y-2 text-center">
-            <div className="w-12 h-12 bg-primary/10 text-primary border border-primary/20 rounded-full flex items-center justify-center mx-auto">
-              <Clock size={24} />
+        /* Form View - Exactly matches UserScanForm */
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-4 sm:p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-5 sm:space-y-8">
+          {/* Card Header */}
+          <div className="text-center space-y-1.5 sm:space-y-3">
+            <div className="hidden sm:flex w-12 h-12 bg-surface-soft border border-hairline text-ink rounded-full items-center justify-center mx-auto">
+              <Sparkles className="text-primary animate-pulse w-6 h-6" />
             </div>
-            <h1 className="text-lg font-bold text-ink tracking-tight">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
-
-            {/* Live Status Badge */}
-            {statusLoading ? (
-              <div className="text-xs text-muted">กำลังตรวจสอบสถานะรอบเข้าแถว...</div>
-            ) : assemblyStatus ? (
-              <div className="space-y-1">
-                <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
-                  !assemblyStatus.isOpen
-                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                    : assemblyStatus.currentStatus === 'late'
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            <div className="space-y-1">
+              <span className={`inline-block text-[10px] sm:text-[11px] font-extrabold px-2 py-0.5 rounded uppercase tracking-wider ${
+                isSessionClosed
+                  ? 'bg-error text-white'
+                  : assemblyStatus?.currentStatus === 'late'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-primary text-white'
+              }`}>
+                {isSessionClosed
+                  ? 'ปิดรับการเช็กชื่อเข้าแถว'
+                  : assemblyStatus?.currentStatus === 'late'
+                  ? 'รอบเช็กชื่อเข้าแถว (มาสาย)'
+                  : 'รอบเช็กชื่อเข้าแถวประจำวัน'}
+              </span>
+              <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight mt-1">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
+              {assemblyStatus && (
+                <p className={`text-[11px] sm:text-xs font-semibold mt-0.5 sm:mt-1 ${
+                  isSessionClosed ? 'text-error' : assemblyStatus?.currentStatus === 'late' ? 'text-amber-600' : 'text-error'
                 }`}>
-                  <span className={`w-2 h-2 rounded-full ${
-                    !assemblyStatus.isOpen ? 'bg-rose-500' : assemblyStatus.currentStatus === 'late' ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'
-                  }`}></span>
-                  <span>{assemblyStatus.reason}</span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-muted-soft">
-                  <span>เวลาเข้าแถว: {assemblyStatus.startTime} - {assemblyStatus.closeTime} น. (สายหลัง {assemblyStatus.lateTime} น.)</span>
-                  {assemblyStatus.requireDeviceFingerprint && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                      <Fingerprint size={11} /> ตรวจสอบเครื่อง
-                    </span>
-                  )}
-                </div>
-              </div>
-            ) : null}
+                  {isSessionClosed
+                    ? sessionClosedReason
+                    : `เวลาเข้าแถว ${assemblyStatus.startTime} - ${assemblyStatus.closeTime} น. (สายหลัง ${assemblyStatus.lateTime} น.)`}
+                </p>
+              )}
+              <p className="hidden sm:block text-muted text-xs mt-1">กรุณากรอกรหัสนักศึกษาและถ่ายภาพเพื่อยืนยันการเข้าแถว</p>
+            </div>
           </div>
 
-          {/* Form Errors */}
+          {/* Student Found Banner */}
+          {studentData && (
+            <div className="flex items-center space-x-2 p-3 bg-success/15 border border-success/30 text-success text-xs font-semibold rounded-md animate-in fade-in duration-200">
+              <CheckCircle2 size={16} className="flex-shrink-0" />
+              <span>ดึงข้อมูลรายชื่อจากระบบล่วงหน้าสำเร็จ!</span>
+            </div>
+          )}
+
+          {/* Submit Error Banner */}
           {submitError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg text-center flex items-center justify-center gap-2">
-              <AlertTriangle size={15} className="shrink-0" />
+            <div className="flex items-center space-x-2 p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md">
+              <ShieldAlert size={16} className="flex-shrink-0" />
               <span>{submitError}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Student ID Input */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-ink uppercase tracking-wider">
-                รหัสนักศึกษา (11 หลัก) <span className="text-rose-500">*</span>
-              </label>
+          {/* System Closed Banner */}
+          {isSessionClosed && (
+            <div className="flex items-start space-x-2.5 p-4 bg-error/15 border border-error/30 text-error text-xs font-bold rounded-md animate-in fade-in duration-200">
+              <ShieldAlert size={18} className="flex-shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-extrabold text-sm">การเช็กชื่อเสร็จสิ้น/ปิดระบบแล้ว</p>
+                <p className="font-semibold opacity-90">{sessionClosedReason}</p>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+            {/* Student ID (11 Digits) */}
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
+                {studentId.length > 0 && (
+                  <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
+                    {studentId.length === 11
+                      ? '✓ ครบ 11 หลักแล้ว'
+                      : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
+                    }
+                  </span>
+                )}
+              </div>
               <div className="relative">
                 <input
-                  type="text"
                   required
-                  maxLength={11}
+                  type="text"
                   inputMode="numeric"
-                  pattern="[0-9]*"
+                  pattern="[0-9]{11}"
+                  maxLength={11}
+                  title="กรุณากรอกรหัสนักศึกษา 11 หลักให้ถูกต้อง"
                   value={studentId}
-                  onChange={e => setStudentId(e.target.value.replace(/\D/g, ''))}
+                  disabled={isSessionClosed}
+                  onChange={e => {
+                    const val = e.target.value.replace(/[^0-9]/g, '');
+                    if (val.length <= 11) {
+                      setStudentId(val);
+                    }
+                  }}
+                  className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
+                    studentId.length > 0 && studentId.length !== 11
+                      ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
+                      : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
+                  } disabled:bg-surface-soft disabled:text-muted`}
                   placeholder="เช่น 66209010001"
-                  className="w-full h-11 border border-hairline rounded-lg px-3.5 bg-canvas text-ink text-sm font-mono font-bold placeholder:text-muted-soft focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                 />
                 {searchingStudent && (
                   <div className="absolute right-3 top-3">
@@ -606,41 +685,44 @@ export default function UserAssemblyScan() {
                 )}
               </div>
 
-              {/* Student info preview if found */}
+              {/* Student Info Card Preview */}
               {studentData && (
-                <div className="p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-lg text-xs space-y-0.5 animate-in fade-in duration-150">
-                  <div className="font-bold text-emerald-900">
-                    {studentData.prefix}{studentData.first_name} {studentData.last_name}
+                <div className="bg-surface-soft border border-hairline rounded-md p-3.5 text-left text-xs space-y-1.5 animate-in fade-in duration-150 mt-2">
+                  <div className="flex justify-between border-b border-hairline pb-1.5">
+                    <span className="text-muted">ชื่อ-นามสกุล</span>
+                    <span className="font-semibold text-ink">{studentData.prefix}{studentData.first_name} {studentData.last_name}</span>
                   </div>
-                  <div className="text-emerald-700 text-[11px]">
-                    {studentData.level} {studentData.year} • {studentData.major_name} (ห้อง {studentData.room})
+                  <div className="flex justify-between">
+                    <span className="text-muted">กลุ่มเรียน / สาขาวิชา</span>
+                    <span className="font-semibold text-ink">{studentData.level} {studentData.year} • {studentData.major_name} ({studentData.room})</span>
                   </div>
                 </div>
               )}
 
               {studentNotFound && (
-                <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+                <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md mt-2">
                   ⚠️ ไม่พบข้อมูลนักศึกษารหัสนี้ในระบบ กรุณาตรวจสอบอีกครั้ง
                 </div>
               )}
             </div>
 
-            {/* Photo Capture Section */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-ink uppercase tracking-wider flex items-center gap-1.5">
+            {/* Photo Capture Section - Integrated cleanly */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-semibold text-ink uppercase tracking-wider flex items-center gap-1.5">
                   <Camera size={14} className="text-primary" />
                   <span>ภาพถ่ายหลักฐานในแถว</span>
-                  {assemblyStatus?.requirePhoto && <span className="text-rose-500">*</span>}
+                  {assemblyStatus?.requirePhoto && <span className="text-error">*</span>}
                 </label>
                 {photoBase64 && (
                   <button
                     type="button"
+                    disabled={isSessionClosed}
                     onClick={() => {
                       setPhotoBase64(null);
                       startCamera();
                     }}
-                    className="text-[11px] text-primary hover:underline cursor-pointer"
+                    className="text-xs text-primary hover:underline font-semibold cursor-pointer"
                   >
                     ถ่ายใหม่
                   </button>
@@ -648,40 +730,51 @@ export default function UserAssemblyScan() {
               </div>
 
               {/* Camera Preview / Photo Box */}
-              <div className="border border-hairline rounded-xl overflow-hidden bg-surface-soft relative flex flex-col items-center justify-center min-h-[220px]">
+              <div className="border border-hairline rounded-md overflow-hidden bg-surface-soft relative">
                 {photoBase64 ? (
-                  <div className="relative w-full h-full">
+                  <div className="relative w-full h-56">
                     <img
                       src={photoBase64}
                       alt="หลักฐานการเข้าแถว"
-                      className="w-full h-64 object-cover"
+                      className="w-full h-full object-cover"
                     />
-                    <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <CheckCircle2 size={12} className="text-emerald-400" />
+                    <div className="absolute bottom-2.5 left-2.5 bg-black/70 text-white text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1.5 backdrop-blur-xs">
+                      <CheckCircle2 size={13} className="text-emerald-400" />
                       <span>บันทึกภาพถ่ายแล้ว</span>
                     </div>
+                    <button
+                      type="button"
+                      disabled={isSessionClosed}
+                      onClick={() => {
+                        setPhotoBase64(null);
+                        startCamera();
+                      }}
+                      className="absolute bottom-2.5 right-2.5 bg-canvas/90 hover:bg-canvas text-ink text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-xs border border-hairline transition-all cursor-pointer"
+                    >
+                      เปลี่ยนรูป
+                    </button>
                   </div>
                 ) : isCameraActive ? (
-                  <div className="relative w-full h-64 bg-black flex flex-col items-center justify-center">
+                  <div className="relative w-full h-60 bg-black flex flex-col items-center justify-center">
                     <video
                       ref={videoRef}
                       playsInline
                       muted
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-4">
+                    <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-3">
                       <button
                         type="button"
                         onClick={toggleFacingMode}
                         className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/40 text-white backdrop-blur-md flex items-center justify-center transition-all cursor-pointer"
                         title="สลับกล้องหน้า/หลัง"
                       >
-                        <RefreshCw size={16} />
+                        <RefreshCw size={15} />
                       </button>
                       <button
                         type="button"
                         onClick={capturePhoto}
-                        className="w-13 h-13 rounded-full bg-white text-ink border-4 border-white/50 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
+                        className="w-12 h-12 rounded-full bg-white text-ink border-2 border-white/70 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
                         title="กดเพื่อถ่ายรูป"
                       >
                         <Camera size={22} className="text-primary" />
@@ -697,27 +790,29 @@ export default function UserAssemblyScan() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-6 text-center space-y-3">
-                    <div className="w-12 h-12 rounded-full bg-canvas border border-hairline flex items-center justify-center mx-auto text-muted">
-                      <Camera size={20} />
+                  <div className="p-4 sm:p-5 text-center space-y-3">
+                    <div className="w-11 h-11 rounded-full bg-canvas border border-hairline flex items-center justify-center mx-auto text-muted">
+                      <Camera size={20} className="text-primary/80" />
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                       <p className="text-xs font-semibold text-ink">ถ่ายภาพเซลฟี่หรือภาพยืนในแถว</p>
-                      <p className="text-[10px] text-muted">จำเป็นต้องมีภาพขณะเข้าแถวเพื่อเป็นหลักฐานยืนยัน</p>
+                      <p className="text-[11px] text-muted">จำเป็นต้องมีภาพขณะเข้าแถวเพื่อเป็นหลักฐานยืนยัน</p>
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-2 justify-center pt-1">
+                    <div className="flex items-center justify-center gap-2 pt-1">
                       <button
                         type="button"
+                        disabled={isSessionClosed}
                         onClick={() => startCamera('user')}
-                        className="px-3.5 py-2 bg-primary hover:bg-primary-active text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs"
+                        className="h-9 px-4 bg-primary hover:bg-primary-active disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs"
                       >
                         <Camera size={14} />
                         <span>เปิดกล้องถ่ายสด</span>
                       </button>
                       <button
                         type="button"
+                        disabled={isSessionClosed}
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-3.5 py-2 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                        className="h-9 px-3.5 bg-canvas hover:bg-surface-soft disabled:opacity-50 border border-hairline text-ink text-xs font-semibold rounded-md flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                       >
                         <span>เลือกจากคลังภาพ</span>
                       </button>
@@ -726,7 +821,7 @@ export default function UserAssemblyScan() {
                 )}
               </div>
 
-              {/* Hidden File Input for fallback */}
+              {/* Hidden File Input for photo selection */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -737,7 +832,7 @@ export default function UserAssemblyScan() {
               />
 
               {cameraError && (
-                <div className="text-[11px] text-rose-600 bg-rose-50 p-2 rounded-md border border-rose-200">
+                <div className="text-[11px] text-error bg-error/15 p-2 rounded-md border border-error/30 font-medium">
                   {cameraError}
                 </div>
               )}
@@ -745,40 +840,27 @@ export default function UserAssemblyScan() {
 
             {/* GPS Status Indicator */}
             {assemblyStatus?.requireGps && (
-              <div className="p-3 bg-surface-soft border border-hairline rounded-lg text-xs space-y-1.5">
+              <div className="bg-surface-soft border border-hairline rounded-md p-3 text-xs space-y-1">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 font-bold text-ink">
-                    <MapPin size={14} className={coords ? 'text-emerald-600' : 'text-amber-500'} />
-                    <span>ตำแหน่งที่ตั้ง (GPS)</span>
+                  <div className="flex items-center gap-1.5 font-semibold text-ink">
+                    <MapPin size={14} className={coords ? 'text-success' : 'text-amber-500'} />
+                    <span>ตำแหน่งพิกัด (GPS)</span>
                   </div>
                   {gpsLoading ? (
                     <span className="text-[11px] text-muted flex items-center gap-1">
-                      <RefreshCw size={11} className="animate-spin" />
-                      <span>กำลังหาพิกัด...</span>
+                      <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                      <span>กำลังดึงพิกัด...</span>
                     </span>
                   ) : coords ? (
-                    <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                      <CheckCircle2 size={12} />
+                    <span className="text-[11px] font-bold text-success flex items-center gap-1">
+                      <CheckCircle2 size={13} />
                       <span>ระบุตำแหน่งแล้ว</span>
                     </span>
                   ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        setGpsLoading(true);
-                        navigator.geolocation.getCurrentPosition(
-                          pos => {
-                            setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-                            setGpsLoading(false);
-                            setGpsError('');
-                          },
-                          () => {
-                            setGpsError('ไม่สามารถอ่านพิกัดได้ กรุณาเปิด Location Service');
-                            setGpsLoading(false);
-                          },
-                          { enableHighAccuracy: true }
-                        );
-                      }}
+                      disabled={isSessionClosed}
+                      onClick={requestGpsLocation}
                       className="text-[11px] text-primary hover:underline font-bold cursor-pointer"
                     >
                       กดอนุญาตพิกัด
@@ -787,51 +869,71 @@ export default function UserAssemblyScan() {
                 </div>
 
                 {gpsError && (
-                  <p className="text-[11px] text-rose-600">{gpsError}</p>
+                  <p className="text-[11px] text-error font-medium">{gpsError}</p>
                 )}
 
-                {assemblyStatus.locations && assemblyStatus.locations.length > 0 && (
-                  <div className="text-[10px] text-muted-soft">
-                    จุดที่อนุญาต: {assemblyStatus.locations.map((l: any) => `${l.name} (${l.radius} ม.)`).join(' หรือ ')}
-                  </div>
+                {assemblyStatus?.locations && assemblyStatus.locations.length > 0 && (
+                  <p className="text-[10px] text-muted">
+                    บริเวณที่กำหนด: {assemblyStatus.locations.map((l: any) => `${l.name} (${l.radius} ม.)`).join(', ')}
+                  </p>
                 )}
+              </div>
+            )}
+
+            {/* Security Indicator */}
+            {assemblyStatus?.requireDeviceFingerprint && (
+              <div className="flex items-center space-x-1.5 text-[11px] text-muted-soft">
+                <Fingerprint size={13} className="text-primary" />
+                <span>ระบบเปิดการตรวจสอบความปลอดภัยของอุปกรณ์เดี่ยว</span>
               </div>
             )}
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSubmitting || (assemblyStatus && !assemblyStatus.isOpen)}
-              className={`w-full h-11 text-white text-sm font-bold rounded-lg flex items-center justify-center space-x-2 transition-all cursor-pointer ${
-                assemblyStatus && !assemblyStatus.isOpen
-                  ? 'bg-muted-soft cursor-not-allowed text-muted'
-                  : 'bg-primary hover:bg-primary-active active:scale-98 shadow-md'
-              }`}
+              disabled={isSessionClosed || isSubmitting || gpsLoading}
+              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 sm:mt-2 cursor-pointer"
             >
-              {isSubmitting ? (
-                <>
-                  <RefreshCw size={16} className="animate-spin" />
-                  <span>กำลังบันทึกข้อมูล...</span>
-                </>
+              {isSubmitting || gpsLoading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               ) : (
-                <>
-                  <CheckCircle2 size={16} />
-                  <span>ยืนยันการเช็กชื่อเข้าแถว</span>
-                </>
+                <CheckSquare size={16} />
               )}
+              <span>
+                {isSessionClosed
+                  ? 'ปิดรับการเช็กชื่อเข้าแถวแล้ว'
+                  : isSubmitting
+                    ? 'กำลังบันทึกข้อมูล...'
+                    : 'ยืนยันการเช็กชื่อเข้าแถว'}
+              </span>
             </button>
           </form>
 
-          {/* Footer Info */}
-          <div className="text-center text-[11px] text-muted-soft space-y-1 pt-1 border-t border-hairline">
-            <div className="flex items-center justify-center gap-1">
-              <ShieldCheck size={13} className="text-emerald-600" />
-              <span>ระบบตรวจสอบอุปกรณ์เดี่ยว ป้องกันการสแกนแทนกัน</span>
-            </div>
-            <div>วิทยาลัยจัดการเช็กชื่อผ่านระบบ AAS Assembly System</div>
+          {/* Footer Link - Exactly matching UserScanForm */}
+          <div className="border-t border-hairline pt-4 sm:pt-5 text-center">
+            <Link
+              to={`/?id=${studentId || ''}`}
+              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-muted hover:text-ink transition-colors"
+            >
+              <span>ต้องการตรวจสอบประวัติการเข้าแถว?</span>
+              <ArrowRight size={13} />
+            </Link>
           </div>
         </div>
       )}
+
+      {/* Footer Branding - Exactly matching UserScanForm */}
+      <div className="text-center text-[11px] text-muted-soft mt-4 sm:mt-8">
+        © {new Date().getFullYear()} AAS ขับเคลื่อนระบบด้วยฐานข้อมูล SQLite และ Google Sheets API
+      </div>
     </div>
+  );
+}
+
+export default function UserAssemblyScanWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <UserAssemblyScan />
+    </ErrorBoundary>
   );
 }
