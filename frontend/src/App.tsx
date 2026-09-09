@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Link, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Link, Outlet, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Settings, LayoutDashboard, Calendar, Menu, X, ArrowRight, FileSpreadsheet, ClipboardCheck, Users, Plus, ShieldAlert, Clock } from 'lucide-react';
 
@@ -17,7 +17,6 @@ import AdminSystemLogs from './pages/admin/SystemLogs';
 import AssemblyDashboard from './pages/admin/AssemblyDashboard';
 import AssemblySettings from './pages/admin/AssemblySettings';
 import AssemblyAttendance from './pages/admin/AssemblyAttendance';
-import AssemblySystemLogs from './pages/admin/AssemblySystemLogs';
 import UserScanForm from './pages/UserScanForm';
 import UserAssemblyScan from './pages/UserAssemblyScan';
 import UserDashboard from './pages/UserDashboard';
@@ -246,7 +245,6 @@ function AdminLayout() {
       items: [
         { to: '/admin/assembly', label: 'ภาพรวมเข้าแถว', icon: Clock, end: true },
         { to: '/admin/assembly/attendance', label: 'ตารางเช็กเข้าแถว', icon: Users },
-        { to: '/admin/assembly/logs', label: 'บันทึกระบบเข้าแถว', icon: ShieldAlert },
         { to: '/admin/assembly/settings', label: 'ตั้งค่ารอบเข้าแถว', icon: Settings },
       ]
     },
@@ -613,10 +611,11 @@ function App() {
             <Route path="students" element={<AdminStudents />} />
             <Route path="attendance" element={<AdminAttendanceList />} />
             <Route path="systemlog" element={<AdminSystemLogs />} />
+            <Route path="logs" element={<Navigate to="/admin/systemlog" replace />} />
             <Route path="settings" element={<AdminSettings />} />
             <Route path="assembly" element={<AssemblyDashboard />} />
             <Route path="assembly/attendance" element={<AssemblyAttendance />} />
-            <Route path="assembly/logs" element={<AssemblySystemLogs />} />
+            <Route path="assembly/logs" element={<Navigate to="/admin/systemlog?mode=assembly" replace />} />
             <Route path="assembly/settings" element={<AssemblySettings />} />
           </Route>
 

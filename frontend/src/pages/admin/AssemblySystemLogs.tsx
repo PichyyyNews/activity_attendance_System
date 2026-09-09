@@ -77,9 +77,10 @@ interface AssemblyRejection {
 interface AssemblySystemLogsProps {
   activeYear?: string;
   activeTerm?: string;
+  hideHeader?: boolean;
 }
 
-export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: propTerm }: AssemblySystemLogsProps) {
+export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: propTerm, hideHeader }: AssemblySystemLogsProps) {
   const outletCtx = useOutletContext<{ activeYear?: string; activeTerm?: string }>() || {};
   const activeYear = propYear || outletCtx.activeYear;
   const activeTerm = propTerm || outletCtx.activeTerm;
@@ -219,27 +220,29 @@ export default function AssemblySystemLogs({ activeYear: propYear, activeTerm: p
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-in fade-in duration-300">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-hairline pb-4">
-        <div>
-          <h1 className="text-xl font-bold text-ink flex items-center gap-2">
-            <ShieldAlert size={22} className="text-primary" />
-            <span>บันทึกระบบและการตรวจสอบการทุจริต (เข้าแถวหน้าเสาธง)</span>
-          </h1>
-          <p className="text-xs text-muted">
-            ตรวจจับการใช้อุปกรณ์เครื่องเดียวกันสแกนแทนกัน (Device Fingerprint), IP ซ้ำซ้อน, และประวัติการถูกปฏิเสธ (ปี {activeYear || '2569'} / เทอม {activeTerm || '1'})
-          </p>
-        </div>
+      {!hideHeader && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-hairline pb-4">
+          <div>
+            <h1 className="text-xl font-bold text-ink flex items-center gap-2">
+              <ShieldAlert size={22} className="text-primary" />
+              <span>บันทึกระบบและการตรวจสอบการทุจริต (เข้าแถวหน้าเสาธง)</span>
+            </h1>
+            <p className="text-xs text-muted">
+              ตรวจจับการใช้อุปกรณ์เครื่องเดียวกันสแกนแทนกัน (Device Fingerprint), IP ซ้ำซ้อน, และประวัติการถูกปฏิเสธ (ปี {activeYear || '2569'} / เทอม {activeTerm || '1'})
+            </p>
+          </div>
 
-        <button
-          type="button"
-          disabled={loading}
-          onClick={fetchLogsAndRejections}
-          className="px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-xs font-bold text-ink flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          <span>รีเฟรชข้อมูล</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={fetchLogsAndRejections}
+            className="px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-xs font-bold text-ink flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <span>รีเฟรชข้อมูล</span>
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold rounded-xl flex items-center gap-2">

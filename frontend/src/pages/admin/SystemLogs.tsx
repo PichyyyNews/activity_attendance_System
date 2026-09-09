@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams, useOutletContext } from 'react-router-dom';
 import axios from 'axios';
 import { 
   ShieldAlert, RefreshCw, Search, HardDrive, 
-  Globe, AlertTriangle, CheckCircle, Info, ChevronDown, ChevronUp 
+  Globe, AlertTriangle, CheckCircle, Info, ChevronDown, ChevronUp,
+  Clock, Calendar
 } from 'lucide-react';
 import Pagination from '../../components/Pagination';
+import AssemblySystemLogs from './AssemblySystemLogs';
 
 interface FlaggedDetail {
   student_id: string;
@@ -36,7 +39,42 @@ interface SystemLog {
   hardware_fingerprint?: string | null;
 }
 
-export default function AdminSystemLogs() {
+interface AdminSystemLogsProps {
+  activeYear?: string;
+  activeTerm?: string;
+}
+
+export default function AdminSystemLogs({ activeYear: propYear, activeTerm: propTerm }: AdminSystemLogsProps = {}) {
+  const outletCtx = useOutletContext<{ activeYear?: string; activeTerm?: string }>() || {};
+  const activeYear = propYear || outletCtx.activeYear;
+  const activeTerm = propTerm || outletCtx.activeTerm;
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlMode = searchParams.get('mode');
+  const savedMode = (typeof window !== 'undefined' ? localStorage.getItem('admin_systemlog_mode') : null) as 'assembly' | 'activity' | null;
+
+  const initialMode = (urlMode === 'activity' || urlMode === 'assembly')
+    ? urlMode
+    : (savedMode === 'activity' ? 'activity' : 'assembly');
+
+  const [systemMode, setSystemMode] = useState<'assembly' | 'activity'>(initialMode);
+
+  const handleModeChange = (newMode: 'assembly' | 'activity') => {
+    setSystemMode(newMode);
+    setSearchParams({ mode: newMode });
+    try {
+      localStorage.setItem('admin_systemlog_mode', newMode);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (urlMode === 'activity' || urlMode === 'assembly') {
+      if (urlMode !== systemMode) {
+        setSystemMode(urlMode);
+      }
+    }
+  }, [urlMode]);
+
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -290,31 +328,69 @@ export default function AdminSystemLogs() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      {/* Unified Header with Mode Switcher */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-hairline pb-4">
         <div>
           <h1 className="text-2xl font-bold text-ink tracking-tight flex items-center gap-2">
             <ShieldAlert className="text-primary w-7 h-7" />
-            บันทึกระบบและการตรวจสอบการทุจริต
+            <span>บันทึกระบบและการตรวจสอบการทุจริต</span>
           </h1>
           <p className="text-xs text-muted mt-1">
-            เก็บบันทึก IP Address และลายนิ้วมือเครื่อง (Device Fingerprint) ของนักศึกษา เพื่อคอยเฝ้าระวังการสแกนเช็กชื่อแทนกัน
+            {systemMode === 'assembly'
+              ? 'ตรวจจับการใช้อุปกรณ์เครื่องเดียวกันสแกนแทนกัน (Device Fingerprint), IP ซ้ำซ้อน, และประวัติการถูกปฏิเสธ (เข้าแถวหน้าเสาธง)'
+              : 'เก็บบันทึก IP Address และลายนิ้วมือเครื่อง (Device Fingerprint) ของนักศึกษา เพื่อคอยเฝ้าระวังการสแกนเช็กชื่อแทนกัน (คาบกิจกรรม)'}
           </p>
         </div>
-        <button
-          onClick={fetchLogs}
-          disabled={loading}
-          className="h-9 px-4 border border-hairline hover:bg-surface-soft text-ink text-xs font-bold rounded-md flex items-center justify-center space-x-2 transition-colors cursor-pointer disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          <span>{loading ? 'กำลังโหลด...' : 'รีเฟรชข้อมูล'}</span>
-        </button>
+
+        {/* Mode Switcher Tabs */}
+        <div className="flex items-center gap-1.5 p-1 bg-surface-soft border border-hairline rounded-lg shrink-0">
+          <button
+            type="button"
+            onClick={() => handleModeChange('assembly')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              systemMode === 'assembly'
+                ? 'bg-canvas text-ink shadow-xs border border-hairline'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            <Clock size={14} className={systemMode === 'assembly' ? 'text-primary' : 'text-muted'} />
+            <span>เข้าแถวหน้าเสาธง</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleModeChange('activity')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              systemMode === 'activity'
+                ? 'bg-canvas text-ink shadow-xs border border-hairline'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            <Calendar size={14} className={systemMode === 'activity' ? 'text-primary' : 'text-muted'} />
+            <span>คาบกิจกรรม</span>
+          </button>
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div className="p-4 bg-error/15 border border-error/30 text-error rounded-lg text-sm flex items-start gap-2.5">
-          <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+      {/* Mode Body */}
+      {systemMode === 'assembly' ? (
+        <AssemblySystemLogs activeYear={activeYear} activeTerm={activeTerm} hideHeader />
+      ) : (
+        <div className="space-y-6">
+          <div className="flex justify-end">
+            <button
+              onClick={fetchLogs}
+              disabled={loading}
+              className="h-9 px-4 border border-hairline hover:bg-surface-soft text-ink text-xs font-bold rounded-md flex items-center justify-center space-x-2 transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <span>{loading ? 'กำลังโหลด...' : 'รีเฟรชข้อมูล'}</span>
+            </button>
+          </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-4 bg-error/15 border border-error/30 text-error rounded-lg text-sm flex items-start gap-2.5">
+              <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
@@ -693,5 +769,7 @@ export default function AdminSystemLogs() {
         )}
       </div>
     </div>
+  )}
+</div>
   );
 }
