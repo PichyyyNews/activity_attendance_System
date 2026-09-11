@@ -38,6 +38,7 @@ interface ThaiTimePickerProps {
   onChange: (val: string) => void;
   accentColor?: string;
   icon?: any;
+  presets?: string[];
 }
 
 function formatThaiDateDisplay(dateStr?: string) {
@@ -55,14 +56,21 @@ function formatThaiDateDisplay(dateStr?: string) {
   }
 }
 
-function ThaiTimePicker({ label, sublabel, value, onChange, accentColor = 'text-ink', icon: Icon }: ThaiTimePickerProps) {
+function ThaiTimePicker({
+  label,
+  sublabel,
+  value,
+  onChange,
+  accentColor = 'text-ink',
+  icon: Icon,
+  presets = ['06:00', '06:30', '07:00', '07:30']
+}: ThaiTimePickerProps) {
   const parts = (value || '07:30').split(':');
   const hour = parts[0] || '07';
   const minute = parts[1] || '30';
 
   const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, '0'));
   const minutes = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
-  const presets = ['07:30', '07:45', '08:00', '08:30'];
 
   return (
     <div className="flex flex-col justify-between space-y-3.5 h-full">
@@ -644,6 +652,7 @@ export default function AssemblySettings() {
                 onChange={val => setSettings({ ...settings, start_time: val })}
                 accentColor="text-emerald-600"
                 icon={Clock}
+                presets={['06:00', '06:30', '07:00', '07:30']}
               />
             </div>
 
@@ -655,6 +664,7 @@ export default function AssemblySettings() {
                 onChange={val => setSettings({ ...settings, late_time: val })}
                 accentColor="text-amber-600"
                 icon={AlertTriangle}
+                presets={['07:15', '07:30', '07:45', '08:00']}
               />
             </div>
 
@@ -666,6 +676,7 @@ export default function AssemblySettings() {
                 onChange={val => setSettings({ ...settings, close_time: val })}
                 accentColor="text-rose-600"
                 icon={XCircle}
+                presets={['07:45', '08:00', '08:15', '08:30']}
               />
             </div>
           </div>
