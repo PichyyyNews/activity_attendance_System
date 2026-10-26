@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
-import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { CheckSquare, ArrowRight, Sparkles, CheckCircle2, ShieldAlert, AlertTriangle, Check } from 'lucide-react';
 import { getHardwareFingerprint, getDeviceSignals } from '../utils/fingerprint';
 import type { DeviceSignals } from '../utils/fingerprint';
 
@@ -23,7 +23,10 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
     if (this.state.hasError) {
       return (
         <div className="p-6 max-w-md mx-auto my-10 bg-error/15 border border-error/30 text-error rounded-lg space-y-3">
-          <h1 className="text-lg font-bold">⚠️ เกิดข้อผิดพลาดในการโหลดหน้าจอ (React Crash)</h1>
+          <h1 className="text-lg font-bold flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span>เกิดข้อผิดพลาดในการโหลดหน้าจอ (React Crash)</span>
+          </h1>
           <p className="text-xs font-mono bg-canvas p-3 rounded border border-hairline overflow-auto max-h-40">
             {this.state.error?.toString() || 'Unknown Error'}
           </p>
@@ -559,11 +562,15 @@ function UserScanForm() {
               <div className="flex justify-between items-center">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
                 {studentId.length > 0 && (
-                  <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
-                    {studentId.length === 11
-                      ? '✓ ครบ 11 หลักแล้ว'
-                      : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
-                    }
+                  <span className={`text-[11px] font-bold transition-colors inline-flex items-center gap-1 ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
+                    {studentId.length === 11 ? (
+                      <>
+                        <Check size={12} className="inline" />
+                        <span>ครบ 11 หลักแล้ว</span>
+                      </>
+                    ) : (
+                      <span>ขาดอีก {11 - studentId.length} หลัก (กรอกแล้ว {studentId.length}/11)</span>
+                    )}
                   </span>
                 )}
               </div>

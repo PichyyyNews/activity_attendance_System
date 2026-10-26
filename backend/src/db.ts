@@ -581,6 +581,8 @@ db.exec(`
     late_time TEXT DEFAULT '08:00',
     close_time TEXT DEFAULT '08:30',
     active_days TEXT DEFAULT '1,2,3,4,5',
+    active_days_voc TEXT DEFAULT '1,3,5',
+    active_days_dvoc TEXT DEFAULT '2,4',
     require_photo INTEGER DEFAULT 1,
     require_gps INTEGER DEFAULT 1,
     location1_name TEXT DEFAULT 'ลานหน้าเสาธง',
@@ -710,6 +712,24 @@ try {
 } catch (error: any) {
   if (!error.message.includes('duplicate column name')) {
     console.error('Migration Error (assembly_settings.end_date):', error);
+  }
+}
+
+try {
+  db.exec("ALTER TABLE assembly_settings ADD COLUMN active_days_voc TEXT DEFAULT '1,3,5';");
+  console.log('Database Migration: Added active_days_voc column to assembly_settings table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_settings.active_days_voc):', error);
+  }
+}
+
+try {
+  db.exec("ALTER TABLE assembly_settings ADD COLUMN active_days_dvoc TEXT DEFAULT '2,4';");
+  console.log('Database Migration: Added active_days_dvoc column to assembly_settings table.');
+} catch (error: any) {
+  if (!error.message.includes('duplicate column name')) {
+    console.error('Migration Error (assembly_settings.active_days_dvoc):', error);
   }
 }
 

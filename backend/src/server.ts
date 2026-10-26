@@ -3111,7 +3111,13 @@ app.get('/api/assembly/settings', (req, res) => {
     const todaySession = getOrCreateTodayAssemblySession();
     res.json({
       ...settings,
-      require_device_fingerprint: settings.require_device_fingerprint === 1,
+      is_enabled: settings.is_enabled === 1 || settings.is_enabled === true ? 1 : 0,
+      require_photo: settings.require_photo === 1 || settings.require_photo === true ? 1 : 0,
+      require_gps: settings.require_gps === 1 || settings.require_gps === true ? 1 : 0,
+      require_device_fingerprint: settings.require_device_fingerprint === 1 || settings.require_device_fingerprint === true ? 1 : 0,
+      location2_enabled: settings.location2_enabled === 1 || settings.location2_enabled === true ? 1 : 0,
+      active_days_voc: settings.active_days_voc || '1,3,5',
+      active_days_dvoc: settings.active_days_dvoc || '2,4',
       academic_year: activeSem.academic_year,
       term: activeSem.term,
       today_date: getBangkokDateOnly(),
@@ -3133,6 +3139,8 @@ app.post('/api/assembly/settings', (req, res) => {
       late_time,
       close_time,
       active_days,
+      active_days_voc,
+      active_days_dvoc,
       require_photo,
       require_gps,
       require_device_fingerprint,
@@ -3151,73 +3159,139 @@ app.post('/api/assembly/settings', (req, res) => {
       regenerate_static_token
     } = req.body;
 
+    let current = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
+    if (!current) {
+      const defaultToken = crypto.randomBytes(8).toString('hex');
+      db.prepare(`
+        INSERT INTO assembly_settings (id, is_enabled, qr_mode, static_token, start_time, late_time, close_time, active_days, require_device_fingerprint)
+        VALUES (1, 1, 'static', ?, '07:30', '08:00', '08:30', '1,2,3,4,5', 0)
+      `).run(defaultToken);
+      current = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
+    }
+
     if (start_date !== undefined && !start_date) {
       return res.status(400).json({ error: 'กรุณาระบุวันเริ่มต้นนับการเข้าแถว (วันเปิดภาคเรียน)' });
     }
 
-    if (end_date_type === 'specific' && end_date && start_date && end_date < start_date) {
+    const resolvedStartDate = start_date !== undefined ? start_date : (current.start_date || '2026-05-18');
+    const resolvedEndDateType = end_date_type !== undefined ? end_date_type : (current.end_date_type || 'manual');
+    const resolvedEndDate = end_date !== undefined ? (end_date || null) : (current.end_date || null);
+
+    if (resolvedEndDateType === 'specific' && resolvedEndDate && resolvedStartDate && resolvedEndDate < resolvedStartDate) {
       return res.status(400).json({ error: 'วันสิ้นสุดภาคเรียนต้องอยู่หลังวันเริ่มต้นภาคเรียน' });
     }
 
-    let settings = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
-    let staticToken = settings?.static_token;
+    let staticToken = current.static_token;
     if (!staticToken || regenerate_static_token) {
       staticToken = crypto.randomBytes(8).toString('hex');
     }
 
-    const finalEndDate = end_date_type === 'specific' ? (end_date || null) : null;
+    const resolvedIsEnabled = is_enabled !== undefined ? (is_enabled ? 1 : 0) : (current.is_enabled ?? 1);
+    const resolvedQrMode = qr_mode !== undefined ? qr_mode : (current.qr_mode || 'static');
+    const resolvedStartTime = start_time !== undefined ? start_time : (current.start_time || '07:30');
+    const resolvedLateTime = late_time !== undefined ? late_time : (current.late_time || '08:00');
+    const resolvedCloseTime = close_time !== undefined ? close_time : (current.close_time || '08:30');
+    const resolvedActiveDays = active_days !== undefined ? active_days : (current.active_days || '1,2,3,4,5');
+    const resolvedActiveDaysVoc = active_days_voc !== undefined ? active_days_voc : (current.active_days_voc || '1,3,5');
+    const resolvedActiveDaysDvoc = active_days_dvoc !== undefined ? active_days_dvoc : (current.active_days_dvoc || '2,4');
+    const resolvedRequirePhoto = require_photo !== undefined ? (require_photo ? 1 : 0) : (current.require_photo ?? 1);
+    const resolvedRequireGps = require_gps !== undefined ? (require_gps ? 1 : 0) : (current.require_gps ?? 1);
+    const resolvedRequireFingerprint = require_device_fingerprint !== undefined ? (require_device_fingerprint ? 1 : 0) : (current.require_device_fingerprint ?? 0);
+    const resolvedLocation1Name = location1_name !== undefined ? location1_name : (current.location1_name || 'ลานหน้าเสาธง');
+
+    const parseCoord = (val: any, fallback: any) => {
+      if (val === null || val === '') return null;
+      if (val !== undefined) {
+        const num = parseFloat(val);
+        return isNaN(num) ? null : num;
+      }
+      return fallback !== undefined ? fallback : null;
+    };
+
+    const resolvedLoc1Lat = parseCoord(location1_lat, current.location1_lat);
+    const resolvedLoc1Lng = parseCoord(location1_lng, current.location1_lng);
+    const resolvedLoc1Radius = location1_radius !== undefined && location1_radius !== '' ? (parseInt(location1_radius, 10) || 150) : (current.location1_radius || 150);
+
+    const resolvedLoc2Enabled = location2_enabled !== undefined ? (location2_enabled ? 1 : 0) : (current.location2_enabled ?? 0);
+    const resolvedLoc2Name = location2_name !== undefined ? location2_name : (current.location2_name || 'โดมอเนกประสงค์');
+    const resolvedLoc2Lat = parseCoord(location2_lat, current.location2_lat);
+    const resolvedLoc2Lng = parseCoord(location2_lng, current.location2_lng);
+    const resolvedLoc2Radius = location2_radius !== undefined && location2_radius !== '' ? (parseInt(location2_radius, 10) || 150) : (current.location2_radius || 150);
 
     db.prepare(`
       UPDATE assembly_settings SET
-        is_enabled = COALESCE(?, is_enabled),
-        qr_mode = COALESCE(?, qr_mode),
+        is_enabled = ?,
+        qr_mode = ?,
         static_token = ?,
-        start_time = COALESCE(?, start_time),
-        late_time = COALESCE(?, late_time),
-        close_time = COALESCE(?, close_time),
-        active_days = COALESCE(?, active_days),
-        require_photo = COALESCE(?, require_photo),
-        require_gps = COALESCE(?, require_gps),
-        require_device_fingerprint = COALESCE(?, require_device_fingerprint),
-        start_date = COALESCE(?, start_date),
-        end_date_type = COALESCE(?, end_date_type),
+        start_time = ?,
+        late_time = ?,
+        close_time = ?,
+        active_days = ?,
+        active_days_voc = ?,
+        active_days_dvoc = ?,
+        require_photo = ?,
+        require_gps = ?,
+        require_device_fingerprint = ?,
+        start_date = ?,
+        end_date_type = ?,
         end_date = ?,
-        location1_name = COALESCE(?, location1_name),
+        location1_name = ?,
         location1_lat = ?,
         location1_lng = ?,
-        location1_radius = COALESCE(?, location1_radius),
-        location2_enabled = COALESCE(?, location2_enabled),
-        location2_name = COALESCE(?, location2_name),
+        location1_radius = ?,
+        location2_enabled = ?,
+        location2_name = ?,
         location2_lat = ?,
         location2_lng = ?,
-        location2_radius = COALESCE(?, location2_radius)
+        location2_radius = ?
       WHERE id = 1
     `).run(
-      is_enabled !== undefined ? (is_enabled ? 1 : 0) : null,
-      qr_mode || null,
+      resolvedIsEnabled,
+      resolvedQrMode,
       staticToken,
-      start_time || null,
-      late_time || null,
-      close_time || null,
-      active_days || null,
-      require_photo !== undefined ? (require_photo ? 1 : 0) : null,
-      require_gps !== undefined ? (require_gps ? 1 : 0) : null,
-      require_device_fingerprint !== undefined ? (require_device_fingerprint ? 1 : 0) : null,
-      start_date || null,
-      end_date_type || null,
-      finalEndDate,
-      location1_name || null,
-      location1_lat !== undefined && location1_lat !== '' && location1_lat !== null ? parseFloat(location1_lat) : null,
-      location1_lng !== undefined && location1_lng !== '' && location1_lng !== null ? parseFloat(location1_lng) : null,
-      location1_radius ? parseInt(location1_radius, 10) : null,
-      location2_enabled !== undefined ? (location2_enabled ? 1 : 0) : null,
-      location2_name || null,
-      location2_lat !== undefined && location2_lat !== '' && location2_lat !== null ? parseFloat(location2_lat) : null,
-      location2_lng !== undefined && location2_lng !== '' && location2_lng !== null ? parseFloat(location2_lng) : null,
-      location2_radius ? parseInt(location2_radius, 10) : null
+      resolvedStartTime,
+      resolvedLateTime,
+      resolvedCloseTime,
+      resolvedActiveDays,
+      resolvedActiveDaysVoc,
+      resolvedActiveDaysDvoc,
+      resolvedRequirePhoto,
+      resolvedRequireGps,
+      resolvedRequireFingerprint,
+      resolvedStartDate,
+      resolvedEndDateType,
+      resolvedEndDate,
+      resolvedLocation1Name,
+      resolvedLoc1Lat,
+      resolvedLoc1Lng,
+      resolvedLoc1Radius,
+      resolvedLoc2Enabled,
+      resolvedLoc2Name,
+      resolvedLoc2Lat,
+      resolvedLoc2Lng,
+      resolvedLoc2Radius
     );
 
-    res.json({ success: true, static_token: staticToken });
+    const updated = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
+    const activeSem = getActiveSettings();
+    const todaySession = getOrCreateTodayAssemblySession();
+
+    res.json({
+      success: true,
+      static_token: staticToken,
+      settings: {
+        ...updated,
+        is_enabled: updated.is_enabled === 1 ? 1 : 0,
+        require_photo: updated.require_photo === 1 ? 1 : 0,
+        require_gps: updated.require_gps === 1 ? 1 : 0,
+        require_device_fingerprint: updated.require_device_fingerprint === 1 ? 1 : 0,
+        location2_enabled: updated.location2_enabled === 1 ? 1 : 0,
+        academic_year: activeSem.academic_year,
+        term: activeSem.term,
+        today_date: getBangkokDateOnly(),
+        today_daily_token: todaySession.daily_token
+      }
+    });
   } catch (error) {
     console.error('Error updating assembly settings:', error);
     res.status(500).json({ error: 'Failed to update assembly settings' });
@@ -3415,6 +3489,8 @@ app.get('/api/assembly/check-status', (req, res) => {
       startTime: settings.start_time,
       lateTime: settings.late_time,
       closeTime: settings.close_time,
+      activeDaysVoc: settings.active_days_voc || '1,3,5',
+      activeDaysDvoc: settings.active_days_dvoc || '2,4',
       requirePhoto: settings.require_photo === 1,
       requireGps: settings.require_gps === 1,
       requireDeviceFingerprint: settings.require_device_fingerprint === 1,
@@ -3515,7 +3591,7 @@ app.post('/api/assembly/checkin', assemblyUpload.single('photo'), async (req, re
     const currentTime = getBangkokTimeOnly();
     const dayNum = getBangkokDayNum();
     const activeSem = getActiveSettings();
-    const devFlagsStr = typeof device_flags === 'object' ? JSON.stringify(device_flags) : device_flags || null;
+    let devFlagsStr = typeof device_flags === 'object' ? JSON.stringify(device_flags) : device_flags || null;
     const confScoreNum = confidence_score !== undefined && confidence_score !== '' && confidence_score !== null ? parseFloat(confidence_score) : null;
 
     if (!student_id || !/^\d{11}$/.test(student_id.trim())) {
@@ -3636,8 +3712,77 @@ app.post('/api/assembly/checkin', assemblyUpload.single('photo'), async (req, re
     }
 
     const activeDays = (settings.active_days || '1,2,3,4,5').split(',').map((d: string) => parseInt(d.trim(), 10));
-    if (!activeDays.includes(dayNum) && !isOverridden) {
-      return res.status(400).json({ error: 'วันนี้ไม่ใช่วันเข้าแถวตามกำหนดการ' });
+    const activeDaysVoc = (settings.active_days_voc || '1,3,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDaysDvoc = (settings.active_days_dvoc || '2,4').split(',').map((d: string) => parseInt(d.trim(), 10));
+
+    // Alternating Level Schedule Verification (ปวช: active_days_voc, ปวส: active_days_dvoc)
+    if (!isOverridden) {
+      const studentLevel = (student.level || '').trim();
+      const isVoc = studentLevel.startsWith('ปวช');
+      const isDvoc = studentLevel.startsWith('ปวส');
+
+      const dayNamesTh: Record<number, string> = {
+        1: 'จันทร์',
+        2: 'อังคาร',
+        3: 'พุธ',
+        4: 'พฤหัสบดี',
+        5: 'ศุกร์',
+        6: 'เสาร์',
+        7: 'อาทิตย์'
+      };
+      const formatDaysTh = (days: number[]) => days.map(d => dayNamesTh[d] || d.toString()).join(', ');
+
+      if (isVoc && !activeDaysVoc.includes(dayNum)) {
+        const scheduleStr = formatDaysTh(activeDaysVoc);
+        const rejMsg = `วันนี้ไม่ใช่คิวเข้าแถวของระดับ ปวช. (ระดับ ปวช. มีกำหนดเข้าแถววัน: ${scheduleStr})`;
+        logAssemblyRejection({
+          date: todayDate,
+          student_id: cleanStudentId,
+          prefix: student.prefix,
+          first_name: student.first_name,
+          last_name: student.last_name,
+          level: student.level,
+          year: student.year,
+          major_name: student.major_name,
+          major_code: student.major_code,
+          room: student.room,
+          device_uuid: device_uuid || null,
+          hardware_fingerprint: hardware_fingerprint || null,
+          ip_address: ipAddress,
+          confidence_score: confScoreNum,
+          device_flags: devFlagsStr,
+          rejection_reason: rejMsg
+        });
+        return res.status(400).json({ error: rejMsg });
+      }
+
+      if (isDvoc && !activeDaysDvoc.includes(dayNum)) {
+        const scheduleStr = formatDaysTh(activeDaysDvoc);
+        const rejMsg = `วันนี้ไม่ใช่คิวเข้าแถวของระดับ ปวส. (ระดับ ปวส. มีกำหนดเข้าแถววัน: ${scheduleStr})`;
+        logAssemblyRejection({
+          date: todayDate,
+          student_id: cleanStudentId,
+          prefix: student.prefix,
+          first_name: student.first_name,
+          last_name: student.last_name,
+          level: student.level,
+          year: student.year,
+          major_name: student.major_name,
+          major_code: student.major_code,
+          room: student.room,
+          device_uuid: device_uuid || null,
+          hardware_fingerprint: hardware_fingerprint || null,
+          ip_address: ipAddress,
+          confidence_score: confScoreNum,
+          device_flags: devFlagsStr,
+          rejection_reason: rejMsg
+        });
+        return res.status(400).json({ error: rejMsg });
+      }
+
+      if (!isVoc && !isDvoc && !activeDays.includes(dayNum)) {
+        return res.status(400).json({ error: 'วันนี้ไม่ใช่วันเข้าแถวตามกำหนดการ' });
+      }
     }
 
     // 4. Time window check
@@ -3699,11 +3844,11 @@ app.post('/api/assembly/checkin', assemblyUpload.single('photo'), async (req, re
       return res.status(400).json({ error: `คุณได้ทำการเช็กชื่อเข้าแถวสำหรับวันนี้ไปแล้ว (เวลา ${timeStr})` });
     }
 
-    // 6. Check duplicate device scan (1 device cannot scan for multiple students on the same day)
-    if (device_uuid) {
-      const otherScan = db.prepare('SELECT student_id, first_name, last_name FROM assembly_attendances WHERE date = ? AND device_uuid = ? AND student_id != ?').get(todayDate, device_uuid, cleanStudentId) as any;
-      if (otherScan) {
-        const rejMsg = `อุปกรณ์เครื่องนี้ได้ทำการเช็กชื่อให้นักศึกษาคนอื่นแล้ว (${otherScan.student_id} ${otherScan.first_name} ${otherScan.last_name})`;
+    // 6. Device & Fingerprint Anti-Proxy Validation (enforced ONLY when require_device_fingerprint is enabled in settings)
+    if (settings.require_device_fingerprint === 1) {
+      // 6.1 Check if require_device_fingerprint is enforced but no device info present
+      if (!hardware_fingerprint && !device_uuid) {
+        const rejMsg = 'ระบบกำหนดให้ต้องตรวจสอบลายนิ้วมืออุปกรณ์ (Device Fingerprint) แต่ไม่พบข้อมูลจากเบราว์เซอร์';
         logAssemblyRejection({
           date: todayDate,
           student_id: cleanStudentId,
@@ -3715,62 +3860,80 @@ app.post('/api/assembly/checkin', assemblyUpload.single('photo'), async (req, re
           major_name: student.major_name,
           major_code: student.major_code,
           room: student.room,
-          device_uuid: device_uuid,
-          hardware_fingerprint: hardware_fingerprint || null,
           ip_address: ipAddress,
-          confidence_score: confScoreNum,
-          device_flags: devFlagsStr,
           rejection_reason: rejMsg
         });
-        return res.status(400).json({ error: `${rejMsg} เพื่อความโปร่งใสไม่อนุญาตให้สแกนแทนกัน` });
+        return res.status(400).json({ error: rejMsg });
       }
-    }
 
-    // 6.1 Check duplicate hardware fingerprint scan if present
-    if (hardware_fingerprint) {
-      const otherHwScan = db.prepare('SELECT student_id, first_name, last_name FROM assembly_attendances WHERE date = ? AND hardware_fingerprint = ? AND student_id != ?').get(todayDate, hardware_fingerprint, cleanStudentId) as any;
-      if (otherHwScan) {
-        const rejMsg = `ตรวจพบลายนิ้วมืออุปกรณ์ซ้ำซ้อนกับนักศึกษาคนอื่น (${otherHwScan.student_id} ${otherHwScan.first_name} ${otherHwScan.last_name})`;
-        logAssemblyRejection({
-          date: todayDate,
-          student_id: cleanStudentId,
-          prefix: student.prefix,
-          first_name: student.first_name,
-          last_name: student.last_name,
-          level: student.level,
-          year: student.year,
-          major_name: student.major_name,
-          major_code: student.major_code,
-          room: student.room,
-          device_uuid: device_uuid || null,
-          hardware_fingerprint: hardware_fingerprint,
-          ip_address: ipAddress,
-          confidence_score: confScoreNum,
-          device_flags: devFlagsStr,
-          rejection_reason: rejMsg
-        });
-        return res.status(400).json({ error: `${rejMsg} เพื่อความโปร่งใสไม่อนุญาตให้สแกนแทนกัน` });
+      // 6.2 Check duplicate device_uuid scan (1 device cannot scan for multiple students on the same day)
+      if (device_uuid) {
+        const otherScan = db.prepare('SELECT student_id, first_name, last_name FROM assembly_attendances WHERE date = ? AND device_uuid = ? AND student_id != ?').get(todayDate, device_uuid, cleanStudentId) as any;
+        if (otherScan) {
+          const rejMsg = `อุปกรณ์เครื่องนี้ได้ทำการเช็กชื่อให้นักศึกษาคนอื่นแล้ว (${otherScan.student_id} ${otherScan.first_name} ${otherScan.last_name})`;
+          logAssemblyRejection({
+            date: todayDate,
+            student_id: cleanStudentId,
+            prefix: student.prefix,
+            first_name: student.first_name,
+            last_name: student.last_name,
+            level: student.level,
+            year: student.year,
+            major_name: student.major_name,
+            major_code: student.major_code,
+            room: student.room,
+            device_uuid: device_uuid,
+            hardware_fingerprint: hardware_fingerprint || null,
+            ip_address: ipAddress,
+            confidence_score: confScoreNum,
+            device_flags: devFlagsStr,
+            rejection_reason: rejMsg
+          });
+          return res.status(400).json({ error: `${rejMsg} เพื่อความโปร่งใสไม่อนุญาตให้สแกนแทนกัน` });
+        }
       }
-    }
 
-    // 6.2 Check if require_device_fingerprint is enforced
-    if (settings.require_device_fingerprint === 1 && !hardware_fingerprint && !device_uuid) {
-      const rejMsg = 'ระบบกำหนดให้ต้องตรวจสอบลายนิ้วมืออุปกรณ์ (Device Fingerprint) แต่ไม่พบข้อมูลจากเบราว์เซอร์';
-      logAssemblyRejection({
-        date: todayDate,
-        student_id: cleanStudentId,
-        prefix: student.prefix,
-        first_name: student.first_name,
-        last_name: student.last_name,
-        level: student.level,
-        year: student.year,
-        major_name: student.major_name,
-        major_code: student.major_code,
-        room: student.room,
-        ip_address: ipAddress,
-        rejection_reason: rejMsg
-      });
-      return res.status(400).json({ error: rejMsg });
+      // 6.3 Check duplicate hardware fingerprint scan if present
+      if (hardware_fingerprint) {
+        const otherHwScan = db.prepare('SELECT student_id, first_name, last_name, device_uuid FROM assembly_attendances WHERE date = ? AND hardware_fingerprint = ? AND student_id != ?').get(todayDate, hardware_fingerprint, cleanStudentId) as any;
+        if (otherHwScan) {
+          // If device_uuid is also identical (or absent), it is the same physical device/browser
+          // If device_uuid is different, it is a collision across identical hardware/browser models (e.g. two iPhones)
+          const isSameDevice = !device_uuid || !otherHwScan.device_uuid || otherHwScan.device_uuid === device_uuid;
+          if (isSameDevice) {
+            const rejMsg = `ตรวจพบลายนิ้วมืออุปกรณ์ซ้ำซ้อนกับนักศึกษาคนอื่น (${otherHwScan.student_id} ${otherHwScan.first_name} ${otherHwScan.last_name})`;
+            logAssemblyRejection({
+              date: todayDate,
+              student_id: cleanStudentId,
+              prefix: student.prefix,
+              first_name: student.first_name,
+              last_name: student.last_name,
+              level: student.level,
+              year: student.year,
+              major_name: student.major_name,
+              major_code: student.major_code,
+              room: student.room,
+              device_uuid: device_uuid || null,
+              hardware_fingerprint: hardware_fingerprint,
+              ip_address: ipAddress,
+              confidence_score: confScoreNum,
+              device_flags: devFlagsStr,
+              rejection_reason: rejMsg
+            });
+            return res.status(400).json({ error: `${rejMsg} เพื่อความโปร่งใสไม่อนุญาตให้สแกนแทนกัน` });
+          } else {
+            // Collision detected across different devices with identical canvas hash (e.g. same iPhone model)
+            // Allow check-in but record the collision flag
+            let flagsObj: any = {};
+            try {
+              flagsObj = devFlagsStr ? JSON.parse(devFlagsStr) : {};
+            } catch (e) {}
+            flagsObj.possible_fingerprint_collision = true;
+            flagsObj.collided_with_student = otherHwScan.student_id;
+            devFlagsStr = JSON.stringify(flagsObj);
+          }
+        }
+      }
     }
 
     // 7. Geofence verification
@@ -4648,28 +4811,60 @@ app.get('/api/assembly/attendance-daily', (req, res) => {
     else if (dateCategory === 'holiday') defaultStatus = 'holiday';
     else if (dateCategory === 'weekend') defaultStatus = 'weekend';
 
+    const activeDaysVoc = (settings?.active_days_voc || '1,3,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDaysDvoc = (settings?.active_days_dvoc || '2,4').split(',').map((d: string) => parseInt(d.trim(), 10));
+
     const list = students.map(s => {
       const att = attMap.get(s.student_id);
+      if (att) {
+        return {
+          ...s,
+          status: att.status,
+          attended_at: att.attended_at,
+          photo_path: att.photo_path,
+          remark: att.remark || '',
+          matched_location: att.matched_location
+        };
+      }
+
+      let sStatus = defaultStatus;
+      let sRemark = dateMessage ? dateMessage : '';
+
+      // If normal assembly day, verify if this level is scheduled today
+      if (dateCategory === 'normal') {
+        const sLevel = (s.level || '').trim();
+        const isVoc = sLevel.startsWith('ปวช');
+        const isDvoc = sLevel.startsWith('ปวส');
+        const isLevelActive = isVoc ? activeDaysVoc.includes(dayNum) : (isDvoc ? activeDaysDvoc.includes(dayNum) : activeDays.includes(dayNum));
+
+        if (!isLevelActive) {
+          sStatus = 'exempted'; // ไม่มีแถว / สลับวัน (ยกเว้น ไม่นับเป็นวันขาด)
+          sRemark = isVoc ? 'ไม่มีคิวเข้าแถว (ปวช. เข้าแถว จ/พ/ศ)' : (isDvoc ? 'ไม่มีคิวเข้าแถว (ปวส. เข้าแถว อ/พฤ)' : 'ไม่มีการจัดเข้าแถวตามกำหนดการ');
+        }
+      }
+
       return {
         ...s,
-        status: att ? att.status : defaultStatus,
-        attended_at: att ? att.attended_at : null,
-        photo_path: att ? att.photo_path : null,
-        remark: att ? att.remark : (dateMessage ? dateMessage : ''),
-        matched_location: att ? att.matched_location : null
+        status: sStatus,
+        attended_at: null,
+        photo_path: null,
+        remark: sRemark,
+        matched_location: null
       };
     });
 
     const presentCount = list.filter(s => s.status === 'present').length;
     const lateCount = list.filter(s => s.status === 'late').length;
     const leaveCount = list.filter(s => s.status === 'leave').length;
-    // Only count as absent if it is a normal assembly day in the past/today
+    const exemptedCount = list.filter(s => s.status === 'exempted').length;
+    // Only count as absent if it is a normal assembly day and not exempted
     const absentCount = dateCategory === 'normal' 
       ? list.filter(s => s.status === 'absent').length 
       : 0;
     const total = list.length;
-    const rate = (total > 0 && dateCategory === 'normal') 
-      ? Math.round(((presentCount + lateCount) / total) * 100) 
+    const expectedStudents = Math.max(0, total - exemptedCount);
+    const rate = (expectedStudents > 0 && dateCategory === 'normal') 
+      ? Math.round(((presentCount + lateCount) / expectedStudents) * 100) 
       : (presentCount + lateCount > 0 ? Math.round(((presentCount + lateCount) / total) * 100) : 0);
 
     // Latest date with checkins
@@ -4692,6 +4887,7 @@ app.get('/api/assembly/attendance-daily', (req, res) => {
         late: lateCount,
         leave: leaveCount,
         absent: absentCount,
+        exempted: exemptedCount,
         rate
       }
     });
@@ -4751,35 +4947,58 @@ app.get('/api/assembly/attendance-matrix', (req, res) => {
       };
     }
 
+    const settings = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
+    const activeDays = (settings?.active_days || '1,2,3,4,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDaysVoc = (settings?.active_days_voc || '1,3,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDaysDvoc = (settings?.active_days_dvoc || '2,4').split(',').map((d: string) => parseInt(d.trim(), 10));
+
     const matrix = students.map(s => {
       const records = attLookup[s.student_id] || {};
       let presentCount = 0;
       let lateCount = 0;
       let leaveCount = 0;
+      let exemptedCount = 0;
+      let studentScheduledDays = 0;
+
+      const sLevel = (s.level || '').trim();
+      const isVoc = sLevel.startsWith('ปวช');
+      const isDvoc = sLevel.startsWith('ปวส');
 
       for (const d of dates) {
+        const dObj = new Date(d);
+        let dayNum = dObj.getDay();
+        if (dayNum === 0) dayNum = 7;
+        const isScheduled = isVoc ? activeDaysVoc.includes(dayNum) : (isDvoc ? activeDaysDvoc.includes(dayNum) : activeDays.includes(dayNum));
+
         const item = records[d];
         if (item) {
+          studentScheduledDays++;
           if (item.status === 'present') presentCount++;
           else if (item.status === 'late') lateCount++;
           else if (item.status === 'leave') leaveCount++;
+        } else if (!isScheduled) {
+          // Exempted date for this student's level
+          exemptedCount++;
+          records[d] = { status: 'exempted', remark: 'ไม่มีแถว / สลับวัน' };
+        } else {
+          studentScheduledDays++;
         }
       }
 
       const totalAttended = presentCount + lateCount;
-      const totalDays = dates.length;
-      const absentCount = Math.max(0, totalDays - totalAttended - leaveCount);
-      const rate = totalDays > 0 ? Math.round((totalAttended / totalDays) * 100) : 0;
+      const absentCount = Math.max(0, studentScheduledDays - totalAttended - leaveCount);
+      const rate = studentScheduledDays > 0 ? Math.round((totalAttended / studentScheduledDays) * 100) : 0;
 
       return {
         ...s,
         attendance: records,
         stats: {
-          totalDays,
+          totalDays: studentScheduledDays,
           present: presentCount,
           late: lateCount,
           leave: leaveCount,
           absent: absentCount,
+          exempted: exemptedCount,
           rate
         }
       };

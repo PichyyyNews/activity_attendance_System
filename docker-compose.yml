@@ -12,6 +12,7 @@ services:
       - .env
     volumes:
       - sqlite-data:/app/backend/data
+      - uploads-data:/app/backend/uploads
       - ./${GOOGLE_CREDENTIALS_FILE}:/app/google-credentials.json:ro
     expose:
       - "${BACKEND_PORT}"
@@ -35,3 +36,4 @@ services:
 
 volumes:
   sqlite-data:
+  uploads-data:

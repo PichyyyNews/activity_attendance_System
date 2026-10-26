@@ -19,6 +19,7 @@ import {
   Maximize2,
   Minimize2,
   MapPin,
+  X,
 } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -347,8 +348,8 @@ function AttendanceMap({ presentList, sessionLocation, resolution }: AttendanceM
         const tooltipContent = `
           <div style="font-family: inherit; font-size: 11px; padding: 2px 4px;">
             <strong>ขอบเขตรัศมี ${resolution}ม.</strong><br/>
-            📍 พิกัดกลาง: ${cell.lat.toFixed(5)}, ${cell.lng.toFixed(5)}<br/>
-            👤 สแกนเช็กชื่อ: <span style="font-weight:bold; color:${color}">${cell.count} คน-ครั้ง</span>
+            พิกัดกลาง: ${cell.lat.toFixed(5)}, ${cell.lng.toFixed(5)}<br/>
+            สแกนเช็กชื่อ: <span style="font-weight:bold; color:${color}">${cell.count} คน-ครั้ง</span>
           </div>
         `;
         rect.bindTooltip(tooltipContent, { sticky: true });
@@ -943,7 +944,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* 🔍 ระบบตรวจสอบการเช็กชื่อรายบุคคล */}
+      {/* ระบบตรวจสอบการเช็กชื่อรายบุคคล */}
       <div className="bg-canvas border border-hairline rounded-lg p-5 shadow-sm space-y-4">
         <h3 className="text-sm font-bold text-ink flex items-center space-x-2">
           <Search size={16} className="text-primary" />
@@ -2136,7 +2137,7 @@ export default function AdminDashboard() {
                   const pct = maxCount > 0 ? Math.round((d.count / maxCount) * 100) : 0;
                   return (
                     <div className="recharts-custom-tooltip">
-                      <div className="tooltip-label">⏱ {d?.time}</div>
+                      <div className="tooltip-label">เวลา {d?.time}</div>
                       <div className="tooltip-row">
                         <span className="tooltip-dot" style={{ backgroundColor: d?.isPeak ? '#ef4444' : '#3b82f6' }} />
                         <span className="tooltip-name">เช็กชื่อเข้าเรียน</span>
@@ -2147,7 +2148,7 @@ export default function AdminDashboard() {
                         <span className="tooltip-value" style={{ color: d?.isPeak ? '#ef4444' : '#6b7280' }}>{pct}%</span>
                       </div>
                       {d?.isPeak && (
-                        <div style={{ marginTop: 4, fontSize: 10, color: '#ef4444', fontWeight: 700 }}>⚡ ช่วงที่พลุกพล่านที่สุด</div>
+                        <div style={{ marginTop: 4, fontSize: 10, color: '#ef4444', fontWeight: 700 }}>ช่วงที่พลุกพล่านที่สุด (Peak)</div>
                       )}
                     </div>
                   );
@@ -2560,10 +2561,10 @@ export default function AdminDashboard() {
               </div>
               <button 
                 onClick={() => setSelectedStudentHistory(null)}
-                className="text-muted hover:text-ink font-bold text-lg p-1 transition-colors cursor-pointer"
+                className="text-muted hover:text-ink font-bold p-1 transition-colors cursor-pointer"
                 title="ปิดหน้าต่าง"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 

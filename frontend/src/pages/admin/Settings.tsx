@@ -178,7 +178,7 @@ export default function AdminSettings() {
   };
 
   const handleSyncAll = async () => {
-    if (!window.confirm('⚠️ ข้อมูลเดิมทั้งหมดบน Google Sheets จะถูกลบและเขียนทับใหม่\n\nคุณแน่ใจหรือไม่?')) return;
+    if (!window.confirm('ข้อมูลเดิมทั้งหมดบน Google Sheets จะถูกลบและเขียนทับใหม่\n\nคุณแน่ใจหรือไม่?')) return;
     setSyncLoading(true); setSyncMessage(''); setSyncError('');
     try {
       const r = await axios.post('/api/settings/sync-all');
@@ -225,7 +225,7 @@ export default function AdminSettings() {
   const handleImport = async () => {
     const file = importFileRef.current?.files?.[0];
     if (!file) { setImportError('กรุณาเลือกไฟล์ก่อน'); return; }
-    if (!window.confirm('⚠️ การนำเข้าจะทับข้อมูลปัจจุบันทั้งหมด\n\nแนะนำให้สร้าง Snapshot ก่อนดำเนินการ\nคุณแน่ใจหรือไม่?')) return;
+    if (!window.confirm('การนำเข้าจะทับข้อมูลปัจจุบันทั้งหมด\n\nแนะนำให้สร้าง Snapshot ก่อนดำเนินการ\nคุณแน่ใจหรือไม่?')) return;
     setImportLoading(true); setImportMsg(''); setImportError(''); setImportResult(null);
     const form = new FormData(); form.append('backup_file', file);
     try {

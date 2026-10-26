@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { ClipboardCheck, Users, ChevronRight, CheckCircle2, XCircle, Minus, X, Printer, Download, SlidersHorizontal } from 'lucide-react';
+import { ClipboardCheck, Users, ChevronRight, CheckCircle2, XCircle, Minus, X, Printer, Download, SlidersHorizontal, Zap, Edit3, FileText } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -203,7 +203,8 @@ function Tooltip({ info }: { info: TooltipInfo }) {
       </div>
       {content.remark && (
         <div className="mt-1.5 pt-1 border-t border-hairline text-amber-600 font-semibold flex items-center gap-1">
-          <span>📝 หมายเหตุ:</span>
+          <FileText size={11} className="shrink-0" />
+          <span>หมายเหตุ:</span>
           <span className="font-medium text-ink truncate max-w-[150px]">{content.remark}</span>
         </div>
       )}
@@ -703,7 +704,8 @@ export default function AdminAttendanceList() {
                 {/* Quick Check Mode Selector */}
                 <div className="flex items-center gap-1 bg-canvas border border-hairline rounded-lg p-1 shadow-sm shrink-0">
                   <span className="text-[11px] font-bold text-muted px-1.5 flex items-center gap-1">
-                    <span>⚡</span> โหมดไว:
+                    <Zap size={13} className="text-amber-500" />
+                    <span>โหมดไว:</span>
                   </span>
                   <button
                     type="button"
@@ -719,24 +721,26 @@ export default function AdminAttendanceList() {
                   <button
                     type="button"
                     onClick={() => setQuickMode('present')}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
                       quickMode === 'present'
                         ? 'bg-emerald-600 text-white shadow-sm'
                         : 'text-emerald-600 hover:bg-emerald-50'
                     }`}
                   >
-                    <span>🟢</span> เข้าเรียน
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>เข้าเรียน</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setQuickMode('absent')}
-                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
                       quickMode === 'absent'
                         ? 'bg-rose-600 text-white shadow-sm'
                         : 'text-rose-600 hover:bg-rose-50'
                     }`}
                   >
-                    <span>🔴</span> ขาดเรียน
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                    <span>ขาดเรียน</span>
                   </button>
                 </div>
               </div>
@@ -898,7 +902,8 @@ export default function AdminAttendanceList() {
           <div className="bg-canvas border border-hairline rounded-xl shadow-2xl p-6 w-full max-w-md space-y-5 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-hairline pb-3">
               <h3 className="font-bold text-lg text-ink flex items-center gap-2">
-                <span>📝 แก้ไขการเช็กชื่อ</span>
+                <Edit3 size={18} className="text-primary" />
+                <span>แก้ไขการเช็กชื่อ</span>
               </h3>
               <button
                 onClick={() => setEditingCell(null)}

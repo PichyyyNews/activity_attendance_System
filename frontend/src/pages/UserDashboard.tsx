@@ -10,7 +10,9 @@ import {
   Clock,
   Eye,
   X,
-  ChevronRight
+  ChevronRight,
+  GraduationCap,
+  Flag
 } from 'lucide-react';
 
 const formatThaiDate = (dateStr: string) => {
@@ -51,6 +53,7 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [selectedPhotoError, setSelectedPhotoError] = useState(false);
 
   useEffect(() => {
     const id = searchParams.get('id');
@@ -163,7 +166,8 @@ export default function UserDashboard() {
                 : 'text-muted hover:text-ink'
             }`}
           >
-            <span>🎓 คาบกิจกรรม</span>
+            <GraduationCap size={15} />
+            <span>คาบกิจกรรม</span>
           </button>
           <button
             type="button"
@@ -174,7 +178,8 @@ export default function UserDashboard() {
                 : 'text-muted hover:text-ink'
             }`}
           >
-            <span>🏫 เข้าแถวหน้าเสาธง</span>
+            <Flag size={14} />
+            <span>เข้าแถวหน้าเสาธง</span>
           </button>
         </div>
 
@@ -410,10 +415,30 @@ export default function UserDashboard() {
                 ) : (
                   assemblySummary.history.map((item: any) => {
                     const statusBadge = (() => {
-                      if (item.status === 'present') return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">🟢 ทันเวลา</span>;
-                      if (item.status === 'late') return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">🟡 มาสาย</span>;
-                      if (item.status === 'leave') return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">🔵 ลา</span>;
-                      return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">🔴 ขาด</span>;
+                      if (item.status === 'present') return (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span>ทันเวลา</span>
+                        </span>
+                      );
+                      if (item.status === 'late') return (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          <span>มาสาย</span>
+                        </span>
+                      );
+                      if (item.status === 'leave') return (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                          <span>ลา</span>
+                        </span>
+                      );
+                      return (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          <span>ขาด</span>
+                        </span>
+                      );
                     })();
 
                     return (
@@ -430,7 +455,10 @@ export default function UserDashboard() {
                           {item.photo_path && (
                             <button
                               type="button"
-                              onClick={() => setSelectedPhoto(item.photo_path)}
+                              onClick={() => {
+                                setSelectedPhotoError(false);
+                                setSelectedPhoto(item.photo_path);
+                              }}
                               className="w-7 h-7 rounded-lg bg-surface-soft hover:bg-primary hover:text-white border border-hairline flex items-center justify-center transition-colors cursor-pointer"
                               title="ดูรูปหลักฐาน"
                             >
@@ -460,8 +488,20 @@ export default function UserDashboard() {
               <X size={16} />
             </button>
             <span className="text-xs font-bold text-ink block">ภาพถ่ายหลักฐานในแถว</span>
-            <div className="rounded-xl overflow-hidden bg-black flex items-center justify-center max-h-80">
-              <img src={selectedPhoto} alt="หลักฐาน" className="w-full h-auto object-contain max-h-80" />
+            <div className="rounded-xl overflow-hidden bg-surface-soft border border-hairline flex items-center justify-center min-h-[160px] max-h-80">
+              {selectedPhotoError ? (
+                <div className="p-6 text-center text-muted space-y-1">
+                  <p className="text-xs font-semibold text-ink">ไม่สามารถโหลดรูปถ่ายได้</p>
+                  <p className="text-[11px] text-muted">ไฟล์บนเซิร์ฟเวอร์อาจไม่พร้อมใช้งาน</p>
+                </div>
+              ) : (
+                <img
+                  src={selectedPhoto}
+                  alt=""
+                  onError={() => setSelectedPhotoError(true)}
+                  className="w-full h-auto object-contain max-h-80"
+                />
+              )}
             </div>
           </div>
         </div>

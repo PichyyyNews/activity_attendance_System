@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import {
@@ -9,7 +9,11 @@ import {
   Sparkles,
   CheckSquare,
   ArrowRight,
-  XCircle
+  AlertCircle,
+  Image as ImageIcon,
+  X,
+  Trash2,
+  Calendar
 } from 'lucide-react';
 import { getHardwareFingerprint, getDeviceSignals } from '../utils/fingerprint';
 import type { DeviceSignals } from '../utils/fingerprint';
@@ -138,9 +142,12 @@ function UserAssemblyScan() {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [cameraError, setCameraError] = useState('');
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [isShutterFlashing, setIsShutterFlashing] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   // GPS states
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -158,6 +165,30 @@ function UserAssemblyScan() {
   const [deviceUuid, setDeviceUuid] = useState('');
   const [hardwareFingerprint, setHardwareFingerprint] = useState('');
   const [deviceSignals, setDeviceSignals] = useState<DeviceSignals | null>(null);
+
+  // Lock body scroll when camera is active
+  useEffect(() => {
+    if (isCameraActive) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isCameraActive]);
+
+  // Synchronize stream with video element when camera mounts or facingMode changes
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      if (videoRef.current.srcObject !== streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+      videoRef.current.play().catch(err => {
+        console.warn('Video play() caught in useEffect:', err);
+      });
+    }
+  }, [isCameraActive, facingMode]);
 
   // 1. Initialize device fingerprint
   useEffect(() => {
@@ -268,52 +299,178 @@ function UserAssemblyScan() {
     }
   }, [studentId]);
 
+  // Check if today is the scheduled assembly day for this student's level
+  const levelScheduleCheck = useMemo(() => {
+    if (!studentData || !assemblyStatus || assemblyStatus.isOverridden) {
+      return { isAllowed: true, reason: '' };
+    }
+
+    const todayDate = assemblyStatus.todayDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+    const dayNum = new Date(`${todayDate}T12:00:00+07:00`).getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+
+    const vocDays = (assemblyStatus.activeDaysVoc || '1,3,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const dvocDays = (assemblyStatus.activeDaysDvoc || '2,4').split(',').map((d: string) => parseInt(d.trim(), 10));
+
+    const level = (studentData.level || '').trim();
+    const isVoc = level.startsWith('ปวช');
+    const isDvoc = level.startsWith('ปวส');
+
+    const dayNameMap: Record<number, string> = { 1: 'จันทร์', 2: 'อังคาร', 3: 'พุธ', 4: 'พฤหัสบดี', 5: 'ศุกร์', 6: 'เสาร์', 0: 'อาทิตย์' };
+    const vocDayNames = vocDays.map((d: number) => dayNameMap[d] || d).join('/');
+    const dvocDayNames = dvocDays.map((d: number) => dayNameMap[d] || d).join('/');
+
+    if (isVoc && !vocDays.includes(dayNum)) {
+      return {
+        isAllowed: false,
+        reason: `วันนี้เป็นคิวเข้าแถวของระดับ ปวส. (ระดับ ปวช. มีกำหนดเข้าแถววัน ${vocDayNames})`
+      };
+    }
+
+    if (isDvoc && !dvocDays.includes(dayNum)) {
+      return {
+        isAllowed: false,
+        reason: `วันนี้เป็นคิวเข้าแถวของระดับ ปวช. (ระดับ ปวส. มีกำหนดเข้าแถววัน ${dvocDayNames})`
+      };
+    }
+
+    return { isAllowed: true, reason: '' };
+  }, [studentData, assemblyStatus]);
+
   // Camera Management
-  const startCamera = async (mode = facingMode) => {
+  const openNativeCamera = () => {
     setCameraError('');
+    stopCamera();
+    cameraInputRef.current?.click();
+  };
+
+  const startCamera = async (mode: 'user' | 'environment' = facingMode) => {
+    setCameraError('');
+    setIsCameraLoading(true);
+
+    // Fallback if mediaDevices or getUserMedia is not supported in this browser (e.g. non-HTTPS, iOS LINE/FB webview)
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setIsCameraLoading(false);
+      console.warn('getUserMedia not supported, falling back to native camera input');
+      openNativeCamera();
+      return;
+    }
+
     try {
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current.getTracks().forEach(t => {
+          try { t.stop(); } catch (_) {}
+        });
+        streamRef.current = null;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false
-      });
+
+      let stream: MediaStream | null = null;
+      // Step 1: Attempt with ideal 720p constraints
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (err1) {
+        console.warn('Constraint stage 1 failed, trying relaxed facingMode:', err1);
+        try {
+          // Step 2: Attempt with simple facingMode
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: mode },
+            audio: false,
+          });
+        } catch (err2) {
+          console.warn('Constraint stage 2 failed, falling back to basic video:', err2);
+          // Step 3: Attempt bare minimum video
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
+      }
+
+      if (!stream) {
+        throw new Error('No video stream available');
+      }
+
       streamRef.current = stream;
+      setFacingMode(mode);
+      setIsCameraActive(true);
+      setIsCameraLoading(false);
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(playErr => {
+          console.warn('Video play() interrupted:', playErr);
+        });
       }
-      setIsCameraActive(true);
     } catch (err: any) {
+      setIsCameraLoading(false);
       console.warn('Camera access denied or failed:', err);
-      setCameraError('ไม่สามารถเข้าถึงกล้องถ่ายภาพได้ กรุณาอนุญาตสิทธิ์การใช้งานกล้อง หรือใช้ปุ่มเลือกรูปถ่ายแทน');
-      setIsCameraActive(false);
+      stopCamera();
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        setCameraError('ไม่ได้รับอนุญาตให้เข้าถึงกล้อง กรุณาเปิดสิทธิ์ในตั้งค่าเบราว์เซอร์ หรือกด "เลือกรูปจากเครื่อง / ถ่ายด้วยกล้องมือถือ"');
+      } else {
+        setCameraError('ไม่สามารถเปิดกล้องสดได้ กรุณาใช้ "กล้องมือถือ" หรือ "เลือกรูปจากคลังภาพ" ด้านล่าง');
+      }
     }
   };
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current.getTracks().forEach(t => {
+        try { t.stop(); } catch (_) {}
+      });
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsCameraActive(false);
+    setIsCameraLoading(false);
   };
+
+  // Cleanup camera stream when component unmounts
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
 
   const capturePhoto = () => {
     if (!videoRef.current) return;
+    try { navigator.vibrate?.(50); } catch (_) {}
+    setIsShutterFlashing(true);
+    setTimeout(() => setIsShutterFlashing(false), 200);
+
     const video = videoRef.current;
+    const w = video.videoWidth || 640;
+    const h = video.videoHeight || 480;
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Mirror image if using front camera so it matches user expectation
+    if (facingMode === 'user') {
+      ctx.translate(w, 0);
+      ctx.scale(-1, 1);
+    }
+
+    ctx.drawImage(video, 0, 0, w, h);
     const rawData = canvas.toDataURL('image/jpeg', 0.85);
 
-    compressImage(rawData, 800, 800, 0.7).then(compressed => {
+    compressImage(rawData, 960, 960, 0.75).then(compressed => {
       setPhotoBase64(compressed);
       stopCamera();
+    }).catch(err => {
+      console.error('Capture photo compression error:', err);
+      setCameraError('ไม่สามารถประมวลผลรูปถ่ายได้ กรุณาลองใหม่อีกครั้ง');
     });
   };
 
@@ -327,12 +484,15 @@ function UserAssemblyScan() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       try {
-        const compressed = await compressImage(file, 800, 800, 0.7);
+        setCameraError('');
+        const compressed = await compressImage(file, 960, 960, 0.75);
         setPhotoBase64(compressed);
         stopCamera();
       } catch (err) {
         console.error('File compression error:', err);
         setCameraError('ไม่สามารถประมวลผลรูปภาพได้ กรุณาลองใหม่อีกครั้ง');
+      } finally {
+        e.target.value = '';
       }
     }
   };
@@ -349,6 +509,11 @@ function UserAssemblyScan() {
 
     if (!studentData) {
       setSubmitError('ไม่พบข้อมูลนักศึกษานี้ในระบบ กรุณาตรวจสอบรหัสอีกครั้ง');
+      return;
+    }
+
+    if (!levelScheduleCheck.isAllowed) {
+      setSubmitError(levelScheduleCheck.reason);
       return;
     }
 
@@ -699,6 +864,22 @@ function UserAssemblyScan() {
                 </div>
               )}
 
+              {/* Alternating schedule notice */}
+              {studentData && !levelScheduleCheck.isAllowed && (
+                <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-left text-xs space-y-1.5 animate-in fade-in duration-150 mt-2">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
+                    <Calendar size={15} className="shrink-0 text-amber-600" />
+                    <span>วันนี้ไม่ใช่คิวเข้าแถวของระดับชั้นคุณ</span>
+                  </div>
+                  <p className="text-ink font-medium text-[11px] leading-relaxed">
+                    {levelScheduleCheck.reason}
+                  </p>
+                  <p className="text-muted text-[10px]">
+                    * ระบบจะยกเว้นการเข้าแถวให้โดยอัตโนมัติ (ไม่นับเป็นวันขาด และไม่มีผลต่อเปอร์เซ็นต์การเข้าแถว)
+                  </p>
+                </div>
+              )}
+
               {studentNotFound && (
                 <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md mt-2">
                   ⚠️ ไม่พบข้อมูลนักศึกษารหัสนี้ในระบบ กรุณาตรวจสอบอีกครั้ง
@@ -706,13 +887,13 @@ function UserAssemblyScan() {
               )}
             </div>
 
-            {/* Photo Capture Section - Integrated cleanly */}
-            <div className="space-y-1.5">
+            {/* 2. Photo Evidence Section */}
+            <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <label className="block text-xs font-semibold text-ink uppercase tracking-wider flex items-center gap-1.5">
                   <Camera size={14} className="text-primary" />
                   <span>ภาพถ่ายหลักฐานในแถว</span>
-                  {assemblyStatus?.requirePhoto && <span className="text-error">*</span>}
+                  {assemblyStatus?.requirePhoto && <span className="text-error font-bold">*</span>}
                 </label>
                 {photoBase64 && (
                   <button
@@ -720,7 +901,7 @@ function UserAssemblyScan() {
                     disabled={isSessionClosed}
                     onClick={() => {
                       setPhotoBase64(null);
-                      startCamera();
+                      startCamera('user');
                     }}
                     className="text-xs text-primary hover:underline font-semibold cursor-pointer"
                   >
@@ -729,111 +910,162 @@ function UserAssemblyScan() {
                 )}
               </div>
 
-              {/* Camera Preview / Photo Box */}
-              <div className="border border-hairline rounded-md overflow-hidden bg-surface-soft relative">
-                {photoBase64 ? (
-                  <div className="relative w-full h-56">
+              {/* Photo Box or Dual Action Card */}
+              {photoBase64 ? (
+                <div className="border border-hairline rounded-xl overflow-hidden bg-canvas shadow-xs">
+                  <div className="relative w-full aspect-[4/3] max-h-72 bg-black flex items-center justify-center overflow-hidden">
                     <img
                       src={photoBase64}
                       alt="หลักฐานการเข้าแถว"
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute bottom-2.5 left-2.5 bg-black/70 text-white text-[11px] px-2.5 py-1 rounded-md flex items-center gap-1.5 backdrop-blur-xs">
+                    <div className="absolute top-3 left-3 bg-black/75 text-white text-[11px] font-medium px-3 py-1 rounded-full flex items-center gap-1.5 backdrop-blur-md border border-white/10 shadow-xs">
                       <CheckCircle2 size={13} className="text-emerald-400" />
                       <span>บันทึกภาพถ่ายแล้ว</span>
                     </div>
+                  </div>
+
+                  <div className="p-3 bg-surface-soft/60 border-t border-hairline flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isSessionClosed}
+                        onClick={() => {
+                          setPhotoBase64(null);
+                          startCamera('user');
+                        }}
+                        className="h-8 px-3 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-md flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer active:scale-95"
+                      >
+                        <RefreshCw size={12} />
+                        <span>ถ่ายใหม่</span>
+                      </button>
+
+                      <label
+                        htmlFor="main-gallery-input"
+                        className={`h-8 px-3 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-md flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer active:scale-95 ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
+                      >
+                        <ImageIcon size={12} />
+                        <span>เลือกรูปใหม่</span>
+                      </label>
+                    </div>
+
                     <button
                       type="button"
                       disabled={isSessionClosed}
-                      onClick={() => {
-                        setPhotoBase64(null);
-                        startCamera();
-                      }}
-                      className="absolute bottom-2.5 right-2.5 bg-canvas/90 hover:bg-canvas text-ink text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-xs border border-hairline transition-all cursor-pointer"
+                      onClick={() => setPhotoBase64(null)}
+                      className="h-8 px-2.5 text-error hover:bg-error/10 text-xs font-semibold rounded-md flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                      title="ลบรูปภาพ"
                     >
-                      เปลี่ยนรูป
+                      <Trash2 size={13} />
+                      <span>ลบ</span>
                     </button>
                   </div>
-                ) : isCameraActive ? (
-                  <div className="relative w-full h-60 bg-black flex flex-col items-center justify-center">
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={toggleFacingMode}
-                        className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/40 text-white backdrop-blur-md flex items-center justify-center transition-all cursor-pointer"
-                        title="สลับกล้องหน้า/หลัง"
-                      >
-                        <RefreshCw size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={capturePhoto}
-                        className="w-12 h-12 rounded-full bg-white text-ink border-2 border-white/70 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
-                        title="กดเพื่อถ่ายรูป"
-                      >
-                        <Camera size={22} className="text-primary" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={stopCamera}
-                        className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/40 text-white backdrop-blur-md flex items-center justify-center transition-all cursor-pointer"
-                        title="ปิดกล้อง"
-                      >
-                        <XCircle size={16} />
-                      </button>
-                    </div>
+                </div>
+              ) : (
+                <div className="border border-hairline rounded-xl overflow-hidden bg-surface-soft/40 p-4 space-y-3.5 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-canvas border border-hairline flex items-center justify-center mx-auto text-primary shadow-2xs">
+                    <Camera size={22} />
                   </div>
-                ) : (
-                  <div className="p-4 sm:p-5 text-center space-y-3">
-                    <div className="w-11 h-11 rounded-full bg-canvas border border-hairline flex items-center justify-center mx-auto text-muted">
-                      <Camera size={20} className="text-primary/80" />
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-semibold text-ink">ถ่ายภาพเซลฟี่หรือภาพยืนในแถว</p>
-                      <p className="text-[11px] text-muted">จำเป็นต้องมีภาพขณะเข้าแถวเพื่อเป็นหลักฐานยืนยัน</p>
-                    </div>
-                    <div className="flex items-center justify-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        disabled={isSessionClosed}
-                        onClick={() => startCamera('user')}
-                        className="h-9 px-4 bg-primary hover:bg-primary-active disabled:opacity-50 text-white text-xs font-semibold rounded-md flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs"
-                      >
-                        <Camera size={14} />
-                        <span>เปิดกล้องถ่ายสด</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isSessionClosed}
-                        onClick={() => fileInputRef.current?.click()}
-                        className="h-9 px-3.5 bg-canvas hover:bg-surface-soft disabled:opacity-50 border border-hairline text-ink text-xs font-semibold rounded-md flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                      >
-                        <span>เลือกจากคลังภาพ</span>
-                      </button>
-                    </div>
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-ink">ถ่ายภาพเซลฟี่หรือภาพยืนในแถว</p>
+                    <p className="text-[11px] text-muted">จำเป็นต้องมีภาพขณะเข้าแถวเพื่อเป็นหลักฐานยืนยัน</p>
                   </div>
-                )}
-              </div>
 
-              {/* Hidden File Input for photo selection */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isSessionClosed || isCameraLoading}
+                      onClick={() => startCamera('user')}
+                      className="h-10 px-4 bg-primary hover:bg-primary-active disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs active:scale-98"
+                    >
+                      {isCameraLoading ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Camera size={15} />
+                      )}
+                      <span>{isCameraLoading ? 'กำลังเปิดกล้อง...' : 'เปิดกล้องถ่ายภาพ (เต็มจอ)'}</span>
+                    </button>
+
+                    <label
+                      htmlFor="main-gallery-input"
+                      className={`h-10 px-4 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
+                    >
+                      <ImageIcon size={15} className="text-muted" />
+                      <span>เลือกจากคลังภาพ / ไฟล์</span>
+                    </label>
+                  </div>
+
+                  <div className="pt-0.5 flex items-center justify-center">
+                    <label
+                      htmlFor="main-camera-input"
+                      className={`text-[11px] text-muted hover:text-primary font-medium flex items-center gap-1.5 cursor-pointer transition-colors py-1 px-2.5 rounded-md hover:bg-canvas ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
+                    >
+                      <Camera size={12} />
+                      <span>หรือถ่ายด้วยแอปกล้องมือถือโดยตรง (iOS/Android)</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Native Inputs for File/Gallery & Native Camera */}
               <input
+                id="main-camera-input"
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+
+              <input
+                id="main-gallery-input"
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="user"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+
+              <input
+                id="fullscreen-camera-input"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+
+              <input
+                id="fullscreen-gallery-input"
+                type="file"
+                accept="image/*"
                 onChange={handleFileChange}
                 className="hidden"
               />
 
               {cameraError && (
-                <div className="text-[11px] text-error bg-error/15 p-2 rounded-md border border-error/30 font-medium">
-                  {cameraError}
+                <div className="text-[11px] text-error bg-error/15 p-2.5 rounded-lg border border-error/30 font-medium flex items-start gap-2 text-left">
+                  <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                  <div className="space-y-1.5 flex-1">
+                    <span>{cameraError}</span>
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <label
+                        htmlFor="main-camera-input"
+                        className="text-[11px] text-white bg-error px-2.5 py-1 rounded-md cursor-pointer font-semibold shadow-2xs hover:opacity-90 inline-flex items-center gap-1"
+                      >
+                        <Camera size={12} />
+                        <span>ถ่ายด้วยกล้องมือถือ</span>
+                      </label>
+                      <label
+                        htmlFor="main-gallery-input"
+                        className="text-[11px] text-ink bg-canvas px-2.5 py-1 rounded-md border border-hairline cursor-pointer font-semibold shadow-2xs hover:bg-surface-soft inline-flex items-center gap-1"
+                      >
+                        <ImageIcon size={12} />
+                        <span>เลือกรูปจากเครื่อง</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -841,8 +1073,8 @@ function UserAssemblyScan() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSessionClosed || isSubmitting || gpsLoading}
-              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 sm:mt-2 cursor-pointer"
+              disabled={isSessionClosed || isSubmitting || gpsLoading || !levelScheduleCheck.isAllowed}
+              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 sm:mt-2 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSubmitting || gpsLoading ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -852,11 +1084,13 @@ function UserAssemblyScan() {
               <span>
                 {isSessionClosed
                   ? 'ปิดรับการเช็กชื่อเข้าแถวแล้ว'
-                  : isSubmitting
-                    ? 'กำลังบันทึกข้อมูล...'
-                    : gpsLoading
-                    ? 'กำลังดึงตำแหน่ง GPS...'
-                    : 'ยืนยันการเช็กชื่อเข้าแถว'}
+                  : !levelScheduleCheck.isAllowed
+                    ? `วันนี้ไม่ใช่คิวเข้าแถวของระดับ ${studentData?.level || ''}`
+                    : isSubmitting
+                      ? 'กำลังบันทึกข้อมูล...'
+                      : gpsLoading
+                        ? 'กำลังดึงตำแหน่ง GPS...'
+                        : 'ยืนยันการเช็กชื่อเข้าแถว'}
               </span>
             </button>
           </form>
@@ -870,6 +1104,117 @@ function UserAssemblyScan() {
               <span>ต้องการตรวจสอบประวัติการเข้าแถว?</span>
               <ArrowRight size={13} />
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Mobile Camera HUD */}
+      {isCameraActive && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between select-none overflow-hidden touch-none animate-in fade-in duration-200">
+          {/* Shutter Flash Animation */}
+          {isShutterFlashing && (
+            <div className="absolute inset-0 bg-white z-50 transition-opacity duration-200 pointer-events-none" />
+          )}
+
+          {/* Top Bar */}
+          <div
+            style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+            className="relative z-30 px-4 py-3 flex items-center justify-between bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+          >
+            <button
+              type="button"
+              onClick={stopCamera}
+              className="h-10 px-3.5 rounded-full bg-black/60 hover:bg-black/80 text-white text-xs font-semibold backdrop-blur-md flex items-center gap-1.5 border border-white/20 active:scale-95 transition-all cursor-pointer"
+            >
+              <X size={16} />
+              <span>ปิดกล้อง</span>
+            </button>
+
+            <div className="text-white text-xs font-semibold px-3 py-1 bg-black/50 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-1.5 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>กล้องถ่ายสด ({facingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง'})</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleFacingMode}
+              className="w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 text-white backdrop-blur-md flex items-center justify-center border border-white/20 active:scale-95 transition-all cursor-pointer"
+              title="สลับกล้องหน้า/หลัง"
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
+
+          {/* Center Viewfinder */}
+          <div className="relative flex-1 w-full h-full flex items-center justify-center overflow-hidden bg-black">
+            <video
+              ref={(node) => {
+                videoRef.current = node;
+                if (node && streamRef.current && node.srcObject !== streamRef.current) {
+                  node.srcObject = streamRef.current;
+                  node.play().catch(e => console.warn('Autoplay caught:', e));
+                }
+              }}
+              autoPlay
+              playsInline
+              muted
+              style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+
+            {/* Attendance Framing Reticle */}
+            <div className="relative z-20 pointer-events-none flex flex-col items-center justify-center p-4">
+              <div className="w-64 h-80 sm:w-80 sm:h-96 border-2 border-white/50 border-dashed rounded-3xl relative flex flex-col items-center justify-between p-4 shadow-2xl">
+                {/* Corner Accents */}
+                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-xl" />
+                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-xl" />
+                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-xl" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-xl" />
+
+                <span className="text-[11px] text-white font-medium bg-black/60 px-3 py-1 rounded-full backdrop-blur-md border border-white/10 shadow-sm">
+                  จัดใบหน้าให้อยู่ในกรอบและเห็นบริเวณแถว
+                </span>
+                <span className="text-[10px] text-white/90 bg-black/50 px-2.5 py-0.5 rounded-full backdrop-blur-md">
+                  กดปุ่มสีขาวด้านล่างเพื่อถ่ายภาพ
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Bar Controls */}
+          <div
+            style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+            className="relative z-30 px-6 py-5 flex items-center justify-around bg-gradient-to-t from-black/90 via-black/60 to-transparent"
+          >
+            {/* Gallery Upload Option */}
+            <label
+              htmlFor="fullscreen-gallery-input"
+              className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 text-white backdrop-blur-md flex flex-col items-center justify-center border border-white/20 active:scale-95 transition-all cursor-pointer shadow-lg"
+              title="เลือกรูปจากคลังภาพในเครื่อง"
+            >
+              <ImageIcon size={18} />
+              <span className="text-[9px] mt-0.5 font-medium">คลังภาพ</span>
+            </label>
+
+            {/* Large Shutter Button */}
+            <button
+              type="button"
+              onClick={capturePhoto}
+              className="w-20 h-20 rounded-full border-4 border-white/90 p-1 flex items-center justify-center active:scale-90 transition-transform shadow-2xl cursor-pointer"
+              title="กดถ่ายภาพ"
+            >
+              <div className="w-full h-full rounded-full bg-white active:bg-gray-200 transition-colors shadow-inner" />
+            </button>
+
+            {/* Native Camera App Option */}
+            <label
+              htmlFor="fullscreen-camera-input"
+              className="w-12 h-12 rounded-full bg-white/20 hover:bg-white/30 text-white backdrop-blur-md flex flex-col items-center justify-center border border-white/20 active:scale-95 transition-all cursor-pointer shadow-lg"
+              title="เปิดกล้องมือถือโดยตรง"
+            >
+              <Camera size={18} />
+              <span className="text-[9px] mt-0.5 font-medium">กล้องมือถือ</span>
+            </label>
           </div>
         </div>
       )}

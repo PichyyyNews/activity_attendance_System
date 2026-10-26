@@ -490,7 +490,7 @@ export default function AdminStudents() {
   const handleClearRoster = async () => {
     setConfirmDialog({
       show: true,
-      title: '⚠️ คำเตือนสำคัญ!',
+      title: 'คำเตือนสำคัญ!',
       message: 'คุณแน่ใจหรือไม่ที่จะล้างรายชื่อนักเรียนทั้งหมดในระบบล่วงหน้า? การกระทำนี้ไม่สามารถย้อนกลับได้',
       onConfirm: () => {
         setTimeout(() => {
@@ -1192,7 +1192,7 @@ export default function AdminStudents() {
                 onClick={() => setShowEditModal(false)}
                 className="text-muted hover:text-ink transition-colors cursor-pointer"
               >
-                ✕
+                <X size={18} />
               </button>
             </div>
 
@@ -1338,6 +1338,9 @@ export default function AdminStudents() {
         <div className="fixed inset-0 bg-[#111111]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-canvas border border-hairline rounded-lg w-full max-w-sm p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="space-y-2 text-center">
+              <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+                <AlertTriangle size={20} />
+              </div>
               <h3 className="font-bold text-lg text-ink">{confirmDialog.title}</h3>
               <p className="text-sm text-muted">{confirmDialog.message}</p>
             </div>

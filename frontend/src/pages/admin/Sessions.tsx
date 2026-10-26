@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import axios from 'axios';
-import { Plus, QrCode, Calendar as CalendarIcon, Clipboard, Check, X, Download, Edit2, Trash2 } from 'lucide-react';
+import { Plus, QrCode, Calendar as CalendarIcon, Clipboard, Check, X, Download, Edit2, Trash2, AlertTriangle } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -513,7 +513,7 @@ export default function AdminSessions() {
   };
 
   const handleDeleteSession = async (id: number) => {
-    if (!confirm('⚠️ คำเตือน: การลบคาบกิจกรรมครั้งนี้จะลบข้อมูลประวัติการเช็กชื่อของนักศึกษาทั้งหมดในครั้งนี้ออกจากฐานข้อมูลด้วย! คุณแน่ใจหรือไม่ที่จะลบคาบกิจกรรมนี้?')) return;
+    if (!confirm('คำเตือน: การลบคาบกิจกรรมครั้งนี้จะลบข้อมูลประวัติการเช็กชื่อของนักศึกษาทั้งหมดในครั้งนี้ออกจากฐานข้อมูลด้วย! คุณแน่ใจหรือไม่ที่จะลบคาบกิจกรรมนี้?')) return;
     
     try {
       await axios.delete(`/api/sessions/${id}`);
@@ -1099,8 +1099,9 @@ export default function AdminSessions() {
 
             {/* IP Geolocation Warning Alert */}
             <div className="bg-amber-500/10 border border-amber-500/20 rounded p-2.5 text-[11px] text-amber-600 space-y-0.5 leading-relaxed">
-              <p className="font-bold flex items-center gap-1">
-                ⚠️ คำชี้แจงเรื่องพิกัดไม่ตรง (IP-based Location):
+              <p className="font-bold flex items-center gap-1.5">
+                <AlertTriangle size={13} className="shrink-0" />
+                <span>คำชี้แจงเรื่องพิกัดไม่ตรง (IP-based Location):</span>
               </p>
               <p>
                 หากเปิดหน้าจอนี้ผ่าน **คอมพิวเตอร์/โน้ตบุ๊ก** พิกัดจากปุ่ม "ตำแหน่งของฉัน" มักจะคลาดเคลื่อน (เช่น ปักไปกรุงเทพฯ) เนื่องจากคอมพิวเตอร์ไม่มีชิป GPS จริง 
