@@ -41,9 +41,17 @@ A web-based attendance checking system for activity classes, designed for simpli
    *Note: Place your Google Sheets API `credentials.json` in the appropriate directory (e.g., `./backend/config/credentials.json`) and update the `.env` file with your Spreadsheet ID.*
 
 3. **Run with Docker Compose**
-   ```bash
-   docker-compose up --build
-   ```
+   - **Option A (Fastest - Use Pre-built GitHub Container Images):**
+     ```bash
+     docker compose pull
+     docker compose up -d
+     ```
+   - **Option B (Build locally from source):**
+     ```bash
+     docker compose up --build -d
+     ```
+
+   *Note on Database Safety: The SQLite database is safely persisted in the `sqlite-data` volume. On every container boot, the system automatically creates a timestamped safety backup in `backend/data/backups/` before any migrations run.*
 
 4. **Access the application**
    - Frontend: `http://localhost:3000` (or as configured in docker-compose)

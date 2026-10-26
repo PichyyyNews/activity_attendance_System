@@ -13,7 +13,36 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const db = new Database(path.join(dataDir, 'database.sqlite'));
+const dbFile = path.join(dataDir, 'database.sqlite');
+const backupsDir = path.join(dataDir, 'backups');
+
+// Safe auto-backup on startup before any migration runs
+if (fs.existsSync(dbFile) && fs.statSync(dbFile).size > 0) {
+  try {
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFile = path.join(backupsDir, `auto_preboot_${timestamp}.sqlite`);
+    fs.copyFileSync(dbFile, backupFile);
+    console.log(`[Database Safety] Auto-backup created: ${backupFile}`);
+
+    // Keep only the latest 10 auto-backups to save disk space
+    const existingBackups = fs.readdirSync(backupsDir)
+      .filter(f => f.startsWith('auto_preboot_') && f.endsWith('.sqlite'))
+      .sort()
+      .map(f => path.join(backupsDir, f));
+    if (existingBackups.length > 10) {
+      existingBackups.slice(0, existingBackups.length - 10).forEach(f => {
+        try { fs.unlinkSync(f); } catch (_) {}
+      });
+    }
+  } catch (err) {
+    console.warn('[Database Safety] Auto-backup warning:', err);
+  }
+}
+
+const db = new Database(dbFile);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 

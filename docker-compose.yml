@@ -3,7 +3,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: attendance-backend:latest
+    image: ghcr.io/pichyynews/attendance-backend:latest
     container_name: attendance-backend
     restart: always
     environment:
@@ -21,7 +21,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: attendance-frontend:latest
+    image: ghcr.io/pichyynews/attendance-frontend:latest
     container_name: attendance-frontend
     restart: always
     environment:
