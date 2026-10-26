@@ -3636,7 +3636,7 @@ app.post('/api/assembly/checkin', assemblyUpload.single('photo'), async (req, re
 
     // 2. Token verification
     const expectedToken = settings.qr_mode === 'dynamic' ? todaySession.daily_token : settings.static_token;
-    if (token && token.trim() !== expectedToken) {
+    if (!token || token.trim() !== expectedToken) {
       logAssemblyRejection({
         date: todayDate,
         student_id: cleanStudentId,
@@ -3938,7 +3938,10 @@ app.post('/api/assembly/checkin', assemblyUpload.single('photo'), async (req, re
 
     // 7. Geofence verification
     let matchedLocationName = 'ลานเข้าแถว';
-    if (settings.require_gps === 1 && bypass_gps !== true && bypass_gps !== 'true') {
+    const adminPinHeader = req.header('X-Admin-Pin');
+    const isBypassAuthorized = (bypass_gps === true || bypass_gps === 'true') && 
+      Boolean(adminPinHeader && safeCompare(adminPinHeader, process.env.ADMIN_PIN || '250669'));
+    if (settings.require_gps === 1 && !isBypassAuthorized) {
       const sLat = latitude !== undefined && latitude !== '' ? parseFloat(latitude) : NaN;
       const sLng = longitude !== undefined && longitude !== '' ? parseFloat(longitude) : NaN;
 
@@ -4216,7 +4219,24 @@ app.get('/api/assembly/student-summary/:studentId', (req, res) => {
       WHERE academic_year = ? AND term = ?
     `).all(activeSem.academic_year, activeSem.term) as { date: string }[];
 
-    const totalDays = Math.max(distinctDates.length, attendances.length);
+    const settings = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
+    const activeDaysVoc = (settings?.active_days_voc || '1,3,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDaysDvoc = (settings?.active_days_dvoc || '2,4').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDays = (settings?.active_days || '1,2,3,4,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+
+    const sLevel = (student.level || '').trim();
+    const isVoc = sLevel.startsWith('ปวช');
+    const isDvoc = sLevel.startsWith('ปวส');
+    const studentActiveDays = isVoc ? activeDaysVoc : (isDvoc ? activeDaysDvoc : activeDays);
+
+    const scheduledDates = distinctDates.filter(dRow => {
+      const [y, m, d] = dRow.date.split('-').map(Number);
+      const dayNum = new Date(y, m - 1, d).getDay();
+      return studentActiveDays.includes(dayNum);
+    });
+
+    const nonExemptAttendances = attendances.filter(a => a.status !== 'exempted');
+    const totalDays = Math.max(scheduledDates.length, nonExemptAttendances.length);
     const presentCount = attendances.filter(a => a.status === 'present').length;
     const lateCount = attendances.filter(a => a.status === 'late').length;
     const leaveCount = attendances.filter(a => a.status === 'leave').length;
@@ -4262,11 +4282,28 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
     }
 
     // Total enrolled students under filter
-    const totalStudentsRow = db.prepare(`
-      SELECT COUNT(*) as count FROM students 
+    const enrolledStudents = db.prepare(`
+      SELECT student_id, level FROM students 
       WHERE ${studentWhere}
-    `).get(...studentParams) as { count: number };
-    const totalStudents = totalStudentsRow?.count || 0;
+    `).all(...studentParams) as { student_id: string; level: string }[];
+    const totalStudents = enrolledStudents.length;
+
+    const settings = db.prepare('SELECT * FROM assembly_settings WHERE id = 1').get() as any;
+    const activeDaysVoc = (settings?.active_days_voc || '1,3,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDaysDvoc = (settings?.active_days_dvoc || '2,4').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const activeDays = (settings?.active_days || '1,2,3,4,5').split(',').map((d: string) => parseInt(d.trim(), 10));
+    const isOverridden = settings?.manual_override_open === 1 && settings?.manual_override_date === today;
+    const todayDayNum = getBangkokDayNum();
+
+    let scheduledStudentsToday = totalStudents;
+    if (!isOverridden) {
+      scheduledStudentsToday = enrolledStudents.filter(s => {
+        const lvl = (s.level || '').trim();
+        const isVoc = lvl.startsWith('ปวช');
+        const isDvoc = lvl.startsWith('ปวส');
+        return isVoc ? activeDaysVoc.includes(todayDayNum) : (isDvoc ? activeDaysDvoc.includes(todayDayNum) : activeDays.includes(todayDayNum));
+      }).length;
+    }
 
     // 1. Today's attendances
     const todayAttendances = db.prepare(`
@@ -4285,8 +4322,9 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
       if (r.status === 'leave') todayLeave = r.count;
     }
     const todayCheckedIn = todayPresent + todayLate;
-    const todayAbsent = Math.max(0, totalStudents - todayCheckedIn - todayLeave);
-    const todayRate = totalStudents > 0 ? Math.round((todayCheckedIn / totalStudents) * 100) : 0;
+    const todayExpected = scheduledStudentsToday > 0 ? scheduledStudentsToday : totalStudents;
+    const todayAbsent = Math.max(0, todayExpected - todayCheckedIn - todayLeave);
+    const todayRate = todayExpected > 0 ? Math.round((todayCheckedIn / todayExpected) * 100) : 0;
     const todayOnTimeRate = todayCheckedIn > 0 ? Math.round((todayPresent / todayCheckedIn) * 100) : 0;
 
     // 2. Determine past dates based on timeframe
@@ -4329,8 +4367,19 @@ app.get('/api/assembly/dashboard-summary', (req, res) => {
         if (s.status === 'leave') leave = s.count;
       }
       const chk = pres + late;
-      const abs = Math.max(0, totalStudents - chk - leave);
-      const rate = totalStudents > 0 ? Math.round((chk / totalStudents) * 100) : 0;
+
+      const [y, m, day] = d.split('-').map(Number);
+      const dDayNum = new Date(y, m - 1, day).getDay();
+      let scheduledForD = enrolledStudents.filter(s => {
+        const lvl = (s.level || '').trim();
+        const isVoc = lvl.startsWith('ปวช');
+        const isDvoc = lvl.startsWith('ปวส');
+        return isVoc ? activeDaysVoc.includes(dDayNum) : (isDvoc ? activeDaysDvoc.includes(dDayNum) : activeDays.includes(dDayNum));
+      }).length;
+      if (scheduledForD === 0) scheduledForD = totalStudents;
+
+      const abs = Math.max(0, scheduledForD - chk - leave);
+      const rate = scheduledForD > 0 ? Math.round((chk / scheduledForD) * 100) : 0;
       const onTimeRate = chk > 0 ? Math.round((pres / chk) * 100) : 0;
 
       sumCheckedIn += chk;
@@ -4777,7 +4826,7 @@ app.get('/api/assembly/attendance-daily', (req, res) => {
     const [qY, qM, qD] = queryDate.split('-').map(Number);
     const dateObj = new Date(qY, qM - 1, qD);
     let dayNum = dateObj.getDay();
-    if (dayNum === 0) dayNum = 7; // Mon=1 ... Sun=7
+
     const activeDays = (settings?.active_days || '1,2,3,4,5').split(',').map((d: string) => parseInt(d.trim(), 10));
     const isNonActiveDay = !activeDays.includes(dayNum);
 
@@ -4965,17 +5014,20 @@ app.get('/api/assembly/attendance-matrix', (req, res) => {
       const isDvoc = sLevel.startsWith('ปวส');
 
       for (const d of dates) {
-        const dObj = new Date(d);
-        let dayNum = dObj.getDay();
-        if (dayNum === 0) dayNum = 7;
+        const [dY, dM, dD] = d.split('-').map(Number);
+        const dayNum = new Date(dY, dM - 1, dD).getDay();
         const isScheduled = isVoc ? activeDaysVoc.includes(dayNum) : (isDvoc ? activeDaysDvoc.includes(dayNum) : activeDays.includes(dayNum));
 
         const item = records[d];
         if (item) {
-          studentScheduledDays++;
-          if (item.status === 'present') presentCount++;
-          else if (item.status === 'late') lateCount++;
-          else if (item.status === 'leave') leaveCount++;
+          if (item.status === 'exempted') {
+            exemptedCount++;
+          } else {
+            studentScheduledDays++;
+            if (item.status === 'present') presentCount++;
+            else if (item.status === 'late') lateCount++;
+            else if (item.status === 'leave') leaveCount++;
+          }
         } else if (!isScheduled) {
           // Exempted date for this student's level
           exemptedCount++;
@@ -4992,14 +5044,22 @@ app.get('/api/assembly/attendance-matrix', (req, res) => {
       return {
         ...s,
         attendance: records,
+        attendance_map: records,
         stats: {
           totalDays: studentScheduledDays,
+          total_school_days: studentScheduledDays,
           present: presentCount,
+          present_days: presentCount,
           late: lateCount,
+          late_days: lateCount,
           leave: leaveCount,
+          leave_days: leaveCount,
           absent: absentCount,
+          absent_days: absentCount,
           exempted: exemptedCount,
-          rate
+          exempted_days: exemptedCount,
+          rate,
+          rate_percent: rate
         }
       };
     });
