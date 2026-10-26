@@ -6,7 +6,6 @@ import {
   RefreshCw,
   CheckCircle2,
   ShieldAlert,
-  Sparkles,
   CheckSquare,
   ArrowRight,
   AlertCircle,
@@ -757,66 +756,53 @@ function UserAssemblyScan() {
           <p className="text-sm text-muted font-semibold">กำลังตรวจสอบข้อมูลรอบการเข้าแถวและประวัติเครื่อง...</p>
         </div>
       ) : (
-        /* Form View - Exactly matches UserScanForm */
-        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-lg p-4 sm:p-6 md:p-8 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-5 sm:space-y-8">
+        /* Form View - Compact & Highly Responsive */
+        <div className="max-w-md w-full mx-auto my-auto bg-canvas border border-hairline rounded-xl p-4 sm:p-6 shadow-[0_8px_32px_rgba(0,0,0,0.04)] space-y-4">
           {/* Card Header */}
-          <div className="text-center space-y-1.5 sm:space-y-3">
-            <div className="hidden sm:flex w-12 h-12 bg-surface-soft border border-hairline text-ink rounded-full items-center justify-center mx-auto">
-              <Sparkles className="text-primary animate-pulse w-6 h-6" />
-            </div>
-            <div className="space-y-1">
-              <h1 className="text-lg sm:text-2xl font-bold text-ink tracking-tight">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
-              {assemblyStatus && (
-                <p className={`text-[11px] sm:text-xs font-semibold mt-0.5 sm:mt-1 ${
-                  isSessionClosed ? 'text-error' : assemblyStatus?.currentStatus === 'late' ? 'text-amber-600' : 'text-error'
+          <div className="text-center space-y-1.5">
+            <h1 className="text-lg sm:text-xl font-bold text-ink tracking-tight">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
+            {assemblyStatus && (
+              <div className="flex items-center justify-center">
+                <span className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold ${
+                  isSessionClosed
+                    ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20'
+                    : assemblyStatus?.currentStatus === 'late'
+                    ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
+                    : 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/20'
                 }`}>
-                  {isSessionClosed
-                    ? sessionClosedReason
-                    : `เวลาเข้าแถว ${assemblyStatus.startTime} - ${assemblyStatus.closeTime} น. (สายหลัง ${assemblyStatus.lateTime} น.)`}
-                </p>
-              )}
-              <p className="hidden sm:block text-muted text-xs mt-1">กรุณากรอกรหัสนักศึกษาและถ่ายภาพเพื่อยืนยันการเข้าแถว</p>
-            </div>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    isSessionClosed ? 'bg-rose-500' : assemblyStatus?.currentStatus === 'late' ? 'bg-amber-500' : 'bg-emerald-500'
+                  }`} />
+                  <span>
+                    {isSessionClosed
+                      ? sessionClosedReason
+                      : assemblyStatus?.currentStatus === 'late'
+                      ? `เปิดรับเช็กชื่อ (เริ่มสายหลัง ${assemblyStatus.lateTime} น.)`
+                      : `เปิดรับเช็กชื่อ ${assemblyStatus.startTime} - ${assemblyStatus.closeTime} น.`}
+                  </span>
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Student Found Banner */}
-          {studentData && (
-            <div className="flex items-center space-x-2 p-3 bg-success/15 border border-success/30 text-success text-xs font-semibold rounded-md animate-in fade-in duration-200">
-              <CheckCircle2 size={16} className="flex-shrink-0" />
-              <span>ดึงข้อมูลรายชื่อจากระบบล่วงหน้าสำเร็จ!</span>
-            </div>
-          )}
-
-          {/* Submit Error Banner */}
+          {/* Submit Error Banner (Only shown on actual error) */}
           {submitError && (
-            <div className="flex items-center space-x-2 p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md">
-              <ShieldAlert size={16} className="flex-shrink-0" />
+            <div className="flex items-center space-x-2 p-2.5 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-lg animate-in fade-in">
+              <ShieldAlert size={15} className="shrink-0" />
               <span>{submitError}</span>
             </div>
           )}
 
-          {/* System Closed Banner */}
-          {isSessionClosed && (
-            <div className="flex items-start space-x-2.5 p-4 bg-error/15 border border-error/30 text-error text-xs font-bold rounded-md animate-in fade-in duration-200">
-              <ShieldAlert size={18} className="flex-shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-extrabold text-sm">การเช็กชื่อเสร็จสิ้น/ปิดระบบแล้ว</p>
-                <p className="font-semibold opacity-90">{sessionClosedReason}</p>
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-3.5">
             {/* Student ID (11 Digits) */}
             <div className="space-y-1">
               <div className="flex justify-between items-center">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
+                <label className="block text-[11px] font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
                 {studentId.length > 0 && (
                   <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
                     {studentId.length === 11
-                      ? '✓ ครบ 11 หลักแล้ว'
-                      : `ขาดอีก ${11 - studentId.length} หลัก (กรอกแล้ว ${studentId.length}/11)`
-                    }
+                      ? '✓ ครบ 11 หลัก'
+                      : `${studentId.length}/11`}
                   </span>
                 )}
               </div>
@@ -836,7 +822,7 @@ function UserAssemblyScan() {
                       setStudentId(val);
                     }
                   }}
-                  className={`w-full h-11 border rounded-md px-3.5 text-base bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
+                  className={`w-full h-10 border rounded-lg px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
                     studentId.length > 0 && studentId.length !== 11
                       ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
                       : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
@@ -844,242 +830,250 @@ function UserAssemblyScan() {
                   placeholder="เช่น 66209010001"
                 />
                 {searchingStudent && (
-                  <div className="absolute right-3 top-3">
-                    <RefreshCw size={16} className="text-muted animate-spin" />
+                  <div className="absolute right-3 top-2.5">
+                    <RefreshCw size={15} className="text-muted animate-spin" />
                   </div>
                 )}
               </div>
 
-              {/* Student Info Card Preview */}
+              {/* Integrated Student Info Card Preview */}
               {studentData && (
-                <div className="bg-surface-soft border border-hairline rounded-md p-3.5 text-left text-xs space-y-1.5 animate-in fade-in duration-150 mt-2">
-                  <div className="flex justify-between border-b border-hairline pb-1.5">
-                    <span className="text-muted">ชื่อ-นามสกุล</span>
-                    <span className="font-semibold text-ink">{studentData.prefix}{studentData.first_name} {studentData.last_name}</span>
+                <div className={`rounded-lg p-3 text-left text-xs space-y-1.5 transition-all mt-1.5 border ${
+                  !levelScheduleCheck.isAllowed
+                    ? 'bg-amber-500/10 border-amber-500/30'
+                    : 'bg-surface-soft border-hairline'
+                }`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-ink text-xs truncate">
+                      {studentData.prefix}{studentData.first_name} {studentData.last_name}
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-canvas border border-hairline shrink-0 text-ink font-mono">
+                      {studentData.level} {studentData.year}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted">กลุ่มเรียน / สาขาวิชา</span>
-                    <span className="font-semibold text-ink">{studentData.level} {studentData.year} • {studentData.major_name} ({studentData.room})</span>
+                  <div className="text-[11px] text-muted truncate">
+                    {studentData.major_name} {studentData.room ? `(${studentData.room})` : ''}
                   </div>
-                </div>
-              )}
 
-              {/* Alternating schedule notice */}
-              {studentData && !levelScheduleCheck.isAllowed && (
-                <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-left text-xs space-y-1.5 animate-in fade-in duration-150 mt-2">
-                  <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
-                    <Calendar size={15} className="shrink-0 text-amber-600" />
-                    <span>วันนี้ไม่ใช่คิวเข้าแถวของระดับชั้นคุณ</span>
-                  </div>
-                  <p className="text-ink font-medium text-[11px] leading-relaxed">
-                    {levelScheduleCheck.reason}
-                  </p>
-                  <p className="text-muted text-[10px]">
-                    * ระบบจะยกเว้นการเข้าแถวให้โดยอัตโนมัติ (ไม่นับเป็นวันขาด และไม่มีผลต่อเปอร์เซ็นต์การเข้าแถว)
-                  </p>
+                  {/* Alternating schedule notice integrated */}
+                  {!levelScheduleCheck.isAllowed && (
+                    <div className="pt-2 border-t border-amber-500/20 text-[11px] space-y-0.5">
+                      <div className="flex items-start gap-1.5 text-amber-800 dark:text-amber-300 font-semibold">
+                        <Calendar size={13} className="shrink-0 mt-0.5 text-amber-600" />
+                        <span>{levelScheduleCheck.reason}</span>
+                      </div>
+                      <p className="text-[10px] text-muted pl-4.5">
+                        * ระบบยกเว้นการเข้าแถวให้อัตโนมัติ (ไม่นับเป็นวันขาด)
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
               {studentNotFound && (
-                <div className="p-3 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-md mt-2">
-                  ⚠️ ไม่พบข้อมูลนักศึกษารหัสนี้ในระบบ กรุณาตรวจสอบอีกครั้ง
+                <div className="p-2.5 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-lg mt-1.5 flex items-center gap-1.5">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>ไม่พบข้อมูลนักศึกษารหัสนี้ในระบบ กรุณาตรวจสอบอีกครั้ง</span>
                 </div>
               )}
             </div>
 
-            {/* 2. Photo Evidence Section */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="block text-xs font-semibold text-ink uppercase tracking-wider flex items-center gap-1.5">
-                  <Camera size={14} className="text-primary" />
-                  <span>ภาพถ่ายหลักฐานในแถว</span>
-                  {assemblyStatus?.requirePhoto && <span className="text-error font-bold">*</span>}
-                </label>
-                {photoBase64 && (
-                  <button
-                    type="button"
-                    disabled={isSessionClosed}
-                    onClick={() => {
-                      setPhotoBase64(null);
-                      startCamera('user');
-                    }}
-                    className="text-xs text-primary hover:underline font-semibold cursor-pointer"
-                  >
-                    ถ่ายใหม่
-                  </button>
-                )}
-              </div>
+            {/* 2. Photo Evidence Section (Shown only when check-in is relevant) */}
+            {(!isSessionClosed && levelScheduleCheck.isAllowed) || photoBase64 ? (
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[11px] font-semibold text-ink uppercase tracking-wider flex items-center gap-1.5">
+                    <Camera size={13} className="text-primary" />
+                    <span>ภาพถ่ายหลักฐานในแถว</span>
+                    {assemblyStatus?.requirePhoto && <span className="text-error font-bold">*</span>}
+                  </label>
+                  {photoBase64 && (
+                    <button
+                      type="button"
+                      disabled={isSessionClosed}
+                      onClick={() => {
+                        setPhotoBase64(null);
+                        startCamera('user');
+                      }}
+                      className="text-[11px] text-primary hover:underline font-semibold cursor-pointer"
+                    >
+                      ถ่ายใหม่
+                    </button>
+                  )}
+                </div>
 
-              {/* Photo Box or Dual Action Card */}
-              {photoBase64 ? (
-                <div className="border border-hairline rounded-xl overflow-hidden bg-canvas shadow-xs">
-                  <div className="relative w-full aspect-[4/3] max-h-72 bg-black flex items-center justify-center overflow-hidden">
-                    <img
-                      src={photoBase64}
-                      alt="หลักฐานการเข้าแถว"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute top-3 left-3 bg-black/75 text-white text-[11px] font-medium px-3 py-1 rounded-full flex items-center gap-1.5 backdrop-blur-md border border-white/10 shadow-xs">
-                      <CheckCircle2 size={13} className="text-emerald-400" />
-                      <span>บันทึกภาพถ่ายแล้ว</span>
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-surface-soft/60 border-t border-hairline flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                {/* Photo Box or Dual Action Card */}
+                {photoBase64 ? (
+                  <div className="border border-hairline rounded-lg overflow-hidden bg-canvas shadow-xs">
+                    <div className="relative w-full aspect-[4/3] max-h-56 bg-black flex items-center justify-center overflow-hidden">
+                      <img
+                        src={photoBase64}
+                        alt="หลักฐานการเข้าแถว"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-2 left-2 bg-black/75 text-white text-[10px] font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1 backdrop-blur-xs">
+                        <CheckCircle2 size={12} className="text-emerald-400" />
+                        <span>บันทึกภาพถ่ายแล้ว</span>
+                      </div>
                       <button
                         type="button"
                         disabled={isSessionClosed}
-                        onClick={() => {
-                          setPhotoBase64(null);
-                          startCamera('user');
-                        }}
-                        className="h-8 px-3 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-md flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer active:scale-95"
+                        onClick={() => setPhotoBase64(null)}
+                        className="absolute top-2 right-2 bg-black/75 text-white hover:text-rose-400 p-1 rounded-full backdrop-blur-xs cursor-pointer transition-colors"
+                        title="ลบภาพ"
                       >
-                        <RefreshCw size={12} />
-                        <span>ถ่ายใหม่</span>
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div className="p-2 bg-surface-soft/60 border-t border-hairline flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isSessionClosed}
+                          onClick={() => {
+                            setPhotoBase64(null);
+                            startCamera('user');
+                          }}
+                          className="h-7 px-2.5 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-md flex items-center gap-1 shadow-2xs transition-all cursor-pointer active:scale-95"
+                        >
+                          <RefreshCw size={11} />
+                          <span>ถ่ายใหม่</span>
+                        </button>
+
+                        <label
+                          htmlFor="main-gallery-input"
+                          className={`h-7 px-2.5 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-md flex items-center gap-1 shadow-2xs transition-all cursor-pointer active:scale-95 ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
+                        >
+                          <ImageIcon size={11} />
+                          <span>เลือกรูปใหม่</span>
+                        </label>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={isSessionClosed}
+                        onClick={() => setPhotoBase64(null)}
+                        className="h-7 px-2 text-error hover:bg-error/10 text-xs font-semibold rounded-md flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                        title="ลบรูปภาพ"
+                      >
+                        <Trash2 size={12} />
+                        <span>ลบ</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border border-hairline rounded-lg overflow-hidden bg-surface-soft/40 p-3 space-y-2 text-center">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={isSessionClosed || isCameraLoading}
+                        onClick={() => startCamera('user')}
+                        className="h-9 px-3 bg-primary hover:bg-primary-active disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs active:scale-98"
+                      >
+                        {isCameraLoading ? (
+                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Camera size={14} />
+                        )}
+                        <span>{isCameraLoading ? 'เปิดกล้อง...' : 'เปิดกล้องถ่ายภาพ'}</span>
                       </button>
 
                       <label
                         htmlFor="main-gallery-input"
-                        className={`h-8 px-3 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-md flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer active:scale-95 ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
+                        className={`h-9 px-3 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-2xs active:scale-98 ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
                       >
-                        <ImageIcon size={12} />
-                        <span>เลือกรูปใหม่</span>
+                        <ImageIcon size={14} className="text-muted" />
+                        <span>เลือกจากคลังภาพ</span>
                       </label>
                     </div>
 
-                    <button
-                      type="button"
-                      disabled={isSessionClosed}
-                      onClick={() => setPhotoBase64(null)}
-                      className="h-8 px-2.5 text-error hover:bg-error/10 text-xs font-semibold rounded-md flex items-center gap-1 transition-all cursor-pointer active:scale-95"
-                      title="ลบรูปภาพ"
-                    >
-                      <Trash2 size={13} />
-                      <span>ลบ</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="border border-hairline rounded-xl overflow-hidden bg-surface-soft/40 p-4 space-y-3.5 text-center">
-                  <div className="w-12 h-12 rounded-2xl bg-canvas border border-hairline flex items-center justify-center mx-auto text-primary shadow-2xs">
-                    <Camera size={22} />
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-semibold text-ink">ถ่ายภาพเซลฟี่หรือภาพยืนในแถว</p>
-                    <p className="text-[11px] text-muted">จำเป็นต้องมีภาพขณะเข้าแถวเพื่อเป็นหลักฐานยืนยัน</p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    <button
-                      type="button"
-                      disabled={isSessionClosed || isCameraLoading}
-                      onClick={() => startCamera('user')}
-                      className="h-10 px-4 bg-primary hover:bg-primary-active disabled:opacity-50 text-white text-xs font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs active:scale-98"
-                    >
-                      {isCameraLoading ? (
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <Camera size={15} />
-                      )}
-                      <span>{isCameraLoading ? 'กำลังเปิดกล้อง...' : 'เปิดกล้องถ่ายภาพ (เต็มจอ)'}</span>
-                    </button>
-
-                    <label
-                      htmlFor="main-gallery-input"
-                      className={`h-10 px-4 bg-canvas hover:bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
-                      <ImageIcon size={15} className="text-muted" />
-                      <span>เลือกจากคลังภาพ / ไฟล์</span>
-                    </label>
-                  </div>
-
-                  <div className="pt-0.5 flex items-center justify-center">
-                    <label
-                      htmlFor="main-camera-input"
-                      className={`text-[11px] text-muted hover:text-primary font-medium flex items-center gap-1.5 cursor-pointer transition-colors py-1 px-2.5 rounded-md hover:bg-canvas ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
-                      <Camera size={12} />
-                      <span>หรือถ่ายด้วยแอปกล้องมือถือโดยตรง (iOS/Android)</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* Native Inputs for File/Gallery & Native Camera */}
-              <input
-                id="main-camera-input"
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              <input
-                id="main-gallery-input"
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              <input
-                id="fullscreen-camera-input"
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              <input
-                id="fullscreen-gallery-input"
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-
-              {cameraError && (
-                <div className="text-[11px] text-error bg-error/15 p-2.5 rounded-lg border border-error/30 font-medium flex items-start gap-2 text-left">
-                  <AlertCircle size={15} className="shrink-0 mt-0.5" />
-                  <div className="space-y-1.5 flex-1">
-                    <span>{cameraError}</span>
-                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                    <div className="text-center pt-0.5">
                       <label
                         htmlFor="main-camera-input"
-                        className="text-[11px] text-white bg-error px-2.5 py-1 rounded-md cursor-pointer font-semibold shadow-2xs hover:opacity-90 inline-flex items-center gap-1"
+                        className={`text-[10px] text-muted hover:text-primary font-medium inline-flex items-center gap-1 cursor-pointer transition-colors ${isSessionClosed ? 'opacity-50 pointer-events-none' : ''}`}
                       >
-                        <Camera size={12} />
-                        <span>ถ่ายด้วยกล้องมือถือ</span>
-                      </label>
-                      <label
-                        htmlFor="main-gallery-input"
-                        className="text-[11px] text-ink bg-canvas px-2.5 py-1 rounded-md border border-hairline cursor-pointer font-semibold shadow-2xs hover:bg-surface-soft inline-flex items-center gap-1"
-                      >
-                        <ImageIcon size={12} />
-                        <span>เลือกรูปจากเครื่อง</span>
+                        <Camera size={11} />
+                        <span>หรือถ่ายด้วยแอปกล้องในเครื่อง</span>
                       </label>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+
+                {/* Native Inputs for File/Gallery & Native Camera */}
+                <input
+                  id="main-camera-input"
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                <input
+                  id="main-gallery-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                <input
+                  id="fullscreen-camera-input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                <input
+                  id="fullscreen-gallery-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                {cameraError && (
+                  <div className="text-[11px] text-error bg-error/15 p-2 rounded-lg border border-error/30 font-medium flex items-start gap-1.5 text-left">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                    <div className="space-y-1 flex-1">
+                      <span>{cameraError}</span>
+                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                        <label
+                          htmlFor="main-camera-input"
+                          className="text-[10px] text-white bg-error px-2 py-0.5 rounded cursor-pointer font-semibold shadow-2xs hover:opacity-90 inline-flex items-center gap-1"
+                        >
+                          <Camera size={11} />
+                          <span>กล้องมือถือ</span>
+                        </label>
+                        <label
+                          htmlFor="main-gallery-input"
+                          className="text-[10px] text-ink bg-canvas px-2 py-0.5 rounded border border-hairline cursor-pointer font-semibold shadow-2xs hover:bg-surface-soft inline-flex items-center gap-1"
+                        >
+                          <ImageIcon size={11} />
+                          <span>เลือกจากเครื่อง</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {/* Submit Button */}
             <button
               type="submit"
               disabled={isSessionClosed || isSubmitting || gpsLoading || !levelScheduleCheck.isAllowed}
-              className="w-full h-11 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-sm font-semibold rounded-md flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 sm:mt-2 cursor-pointer disabled:cursor-not-allowed"
+              className="w-full h-10 bg-primary hover:bg-primary-active disabled:bg-surface-strong text-white text-xs sm:text-sm font-semibold rounded-lg flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 mt-1 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSubmitting || gpsLoading ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
               ) : (
-                <CheckSquare size={16} />
+                <CheckSquare size={15} />
               )}
               <span>
                 {isSessionClosed
@@ -1095,14 +1089,14 @@ function UserAssemblyScan() {
             </button>
           </form>
 
-          {/* Footer Link - Exactly matching UserScanForm */}
-          <div className="border-t border-hairline pt-4 sm:pt-5 text-center">
+          {/* Footer Link */}
+          <div className="border-t border-hairline pt-3 text-center">
             <Link
               to={`/?id=${studentId || ''}`}
-              className="inline-flex items-center space-x-1.5 text-xs font-semibold text-muted hover:text-ink transition-colors"
+              className="inline-flex items-center space-x-1 text-xs font-semibold text-muted hover:text-ink transition-colors"
             >
               <span>ต้องการตรวจสอบประวัติการเข้าแถว?</span>
-              <ArrowRight size={13} />
+              <ArrowRight size={12} />
             </Link>
           </div>
         </div>
