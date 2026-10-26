@@ -763,16 +763,8 @@ function UserAssemblyScan() {
             <h1 className="text-lg sm:text-xl font-bold text-ink tracking-tight">เช็กชื่อเข้าแถวหน้าเสาธง</h1>
             {assemblyStatus && (
               <div className="flex items-center justify-center">
-                <span className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold ${
-                  isSessionClosed
-                    ? 'bg-rose-500/10 text-rose-600 border border-rose-500/20'
-                    : assemblyStatus?.currentStatus === 'late'
-                    ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
-                    : 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/20'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    isSessionClosed ? 'bg-rose-500' : assemblyStatus?.currentStatus === 'late' ? 'bg-amber-500' : 'bg-emerald-500'
-                  }`} />
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-surface-soft border border-hairline text-ink shadow-2xs">
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSessionClosed ? 'bg-muted-soft' : 'bg-ink'}`} />
                   <span>
                     {isSessionClosed
                       ? sessionClosedReason
@@ -787,8 +779,8 @@ function UserAssemblyScan() {
 
           {/* Submit Error Banner (Only shown on actual error) */}
           {submitError && (
-            <div className="flex items-center space-x-2 p-2.5 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-lg animate-in fade-in">
-              <ShieldAlert size={15} className="shrink-0" />
+            <div className="flex items-center space-x-2 p-2.5 bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-lg animate-in fade-in">
+              <ShieldAlert size={15} className="shrink-0 text-ink" />
               <span>{submitError}</span>
             </div>
           )}
@@ -799,7 +791,7 @@ function UserAssemblyScan() {
               <div className="flex justify-between items-center">
                 <label className="block text-[11px] font-semibold text-ink uppercase tracking-wider">รหัสนักศึกษา (11 หลัก)</label>
                 {studentId.length > 0 && (
-                  <span className={`text-[11px] font-bold transition-colors ${studentId.length === 11 ? 'text-success' : 'text-error'}`}>
+                  <span className="text-[11px] font-mono font-bold text-ink">
                     {studentId.length === 11
                       ? '✓ ครบ 11 หลัก'
                       : `${studentId.length}/11`}
@@ -822,11 +814,7 @@ function UserAssemblyScan() {
                       setStudentId(val);
                     }
                   }}
-                  className={`w-full h-10 border rounded-lg px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono ${
-                    studentId.length > 0 && studentId.length !== 11
-                      ? 'border-error/60 focus:border-error focus:ring-1 focus:ring-error'
-                      : 'border-hairline focus:border-primary focus:ring-1 focus:ring-primary'
-                  } disabled:bg-surface-soft disabled:text-muted`}
+                  className="w-full h-10 border rounded-lg px-3 text-sm bg-canvas text-ink placeholder:text-muted-soft focus:outline-none transition-all font-mono border-hairline focus:border-ink focus:ring-1 focus:ring-ink disabled:bg-surface-soft disabled:text-muted"
                   placeholder="เช่น 66209010001"
                 />
                 {searchingStudent && (
@@ -838,31 +826,27 @@ function UserAssemblyScan() {
 
               {/* Integrated Student Info Card Preview */}
               {studentData && (
-                <div className={`rounded-lg p-3 text-left text-xs space-y-1.5 transition-all mt-1.5 border ${
-                  !levelScheduleCheck.isAllowed
-                    ? 'bg-amber-500/10 border-amber-500/30'
-                    : 'bg-surface-soft border-hairline'
-                }`}>
+                <div className="rounded-lg p-3.5 text-left text-xs space-y-2 transition-all mt-2 bg-surface-soft border border-hairline shadow-2xs">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-ink text-xs truncate">
+                    <span className="font-bold text-ink text-sm truncate">
                       {studentData.prefix}{studentData.first_name} {studentData.last_name}
                     </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-canvas border border-hairline shrink-0 text-ink font-mono">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-canvas border border-hairline shrink-0 text-ink font-mono shadow-2xs">
                       {studentData.level} {studentData.year}
                     </span>
                   </div>
-                  <div className="text-[11px] text-muted truncate">
+                  <div className="text-xs text-muted truncate">
                     {studentData.major_name} {studentData.room ? `(${studentData.room})` : ''}
                   </div>
 
-                  {/* Alternating schedule notice integrated */}
+                  {/* Alternating schedule notice integrated with high contrast black/white */}
                   {!levelScheduleCheck.isAllowed && (
-                    <div className="pt-2 border-t border-amber-500/20 text-[11px] space-y-0.5">
-                      <div className="flex items-start gap-1.5 text-amber-800 dark:text-amber-300 font-semibold">
-                        <Calendar size={13} className="shrink-0 mt-0.5 text-amber-600" />
-                        <span>{levelScheduleCheck.reason}</span>
+                    <div className="pt-2.5 border-t border-hairline text-xs space-y-1">
+                      <div className="flex items-start gap-2 text-ink font-bold">
+                        <Calendar size={14} className="shrink-0 mt-0.5 text-ink" />
+                        <span className="text-ink leading-snug">{levelScheduleCheck.reason}</span>
                       </div>
-                      <p className="text-[10px] text-muted pl-4.5">
+                      <p className="text-[11px] text-muted pl-5.5">
                         * ระบบยกเว้นการเข้าแถวให้อัตโนมัติ (ไม่นับเป็นวันขาด)
                       </p>
                     </div>
@@ -871,8 +855,8 @@ function UserAssemblyScan() {
               )}
 
               {studentNotFound && (
-                <div className="p-2.5 bg-error/15 border border-error/30 text-error text-xs font-semibold rounded-lg mt-1.5 flex items-center gap-1.5">
-                  <AlertCircle size={14} className="shrink-0" />
+                <div className="p-2.5 bg-surface-soft border border-hairline text-ink text-xs font-semibold rounded-lg mt-1.5 flex items-center gap-1.5">
+                  <AlertCircle size={14} className="shrink-0 text-ink" />
                   <span>ไม่พบข้อมูลนักศึกษารหัสนี้ในระบบ กรุณาตรวจสอบอีกครั้ง</span>
                 </div>
               )}
@@ -912,14 +896,14 @@ function UserAssemblyScan() {
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute top-2 left-2 bg-black/75 text-white text-[10px] font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1 backdrop-blur-xs">
-                        <CheckCircle2 size={12} className="text-emerald-400" />
+                        <CheckCircle2 size={12} className="text-white" />
                         <span>บันทึกภาพถ่ายแล้ว</span>
                       </div>
                       <button
                         type="button"
                         disabled={isSessionClosed}
                         onClick={() => setPhotoBase64(null)}
-                        className="absolute top-2 right-2 bg-black/75 text-white hover:text-rose-400 p-1 rounded-full backdrop-blur-xs cursor-pointer transition-colors"
+                        className="absolute top-2 right-2 bg-black/75 text-white hover:text-white/80 p-1 rounded-full backdrop-blur-xs cursor-pointer transition-colors"
                         title="ลบภาพ"
                       >
                         <X size={14} />
@@ -954,7 +938,7 @@ function UserAssemblyScan() {
                         type="button"
                         disabled={isSessionClosed}
                         onClick={() => setPhotoBase64(null)}
-                        className="h-7 px-2 text-error hover:bg-error/10 text-xs font-semibold rounded-md flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                        className="h-7 px-2 text-muted hover:text-ink text-xs font-semibold rounded-md flex items-center gap-1 transition-all cursor-pointer active:scale-95"
                         title="ลบรูปภาพ"
                       >
                         <Trash2 size={12} />
@@ -1038,21 +1022,21 @@ function UserAssemblyScan() {
                 />
 
                 {cameraError && (
-                  <div className="text-[11px] text-error bg-error/15 p-2 rounded-lg border border-error/30 font-medium flex items-start gap-1.5 text-left">
-                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-ink bg-surface-soft p-2.5 rounded-lg border border-hairline font-medium flex items-start gap-1.5 text-left shadow-2xs">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5 text-ink" />
                     <div className="space-y-1 flex-1">
                       <span>{cameraError}</span>
                       <div className="flex flex-wrap items-center gap-2 pt-0.5">
                         <label
                           htmlFor="main-camera-input"
-                          className="text-[10px] text-white bg-error px-2 py-0.5 rounded cursor-pointer font-semibold shadow-2xs hover:opacity-90 inline-flex items-center gap-1"
+                          className="text-[10px] text-white bg-primary px-2.5 py-1 rounded cursor-pointer font-semibold shadow-2xs hover:bg-primary-active inline-flex items-center gap-1"
                         >
                           <Camera size={11} />
                           <span>กล้องมือถือ</span>
                         </label>
                         <label
                           htmlFor="main-gallery-input"
-                          className="text-[10px] text-ink bg-canvas px-2 py-0.5 rounded border border-hairline cursor-pointer font-semibold shadow-2xs hover:bg-surface-soft inline-flex items-center gap-1"
+                          className="text-[10px] text-ink bg-canvas px-2.5 py-1 rounded border border-hairline cursor-pointer font-semibold shadow-2xs hover:bg-surface-soft inline-flex items-center gap-1"
                         >
                           <ImageIcon size={11} />
                           <span>เลือกจากเครื่อง</span>
