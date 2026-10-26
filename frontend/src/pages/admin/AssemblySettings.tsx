@@ -849,43 +849,43 @@ export default function AssemblySettings() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => applySchedulePreset('alternating')}
-                    className="px-2.5 py-1 text-[11px] font-bold rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                    className="h-8 px-3 text-xs font-semibold rounded-lg border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
                     title="ปวช: จันทร์, พุธ, ศุกร์ / ปวส: อังคาร, พฤหัสบดี"
                   >
-                    ใช้ตารางสลับวันมาตรฐาน (ปวช: จ/พ/ศ, ปวส: อ/พฤ)
+                    <span>สลับวันมาตรฐาน (ปวช: จ/พ/ศ, ปวส: อ/พฤ)</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => applySchedulePreset('everyday')}
-                    className="px-2 py-1 text-[11px] font-bold rounded-lg border border-hairline bg-canvas hover:bg-surface-soft text-muted hover:text-ink transition-colors cursor-pointer"
+                    className="h-8 px-3 text-xs font-semibold rounded-lg border border-hairline bg-canvas hover:bg-surface-soft text-muted hover:text-ink transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
                     title="เข้าพร้อมกันทุกวัน จันทร์ - ศุกร์"
                   >
-                    เข้าพร้อมกันทุกวัน (จ-ศ)
+                    <span>เข้าพร้อมกันทุกวัน (จ-ศ)</span>
                   </button>
                 </div>
               </div>
 
               {/* Row 1: ระดับ ปวช. */}
-              <div className="p-3.5 rounded-xl border border-indigo-200/60 bg-indigo-50/30 dark:bg-indigo-950/20 dark:border-indigo-900/40 space-y-2.5">
+              <div className="p-4 rounded-xl border border-hairline bg-surface-soft/40 hover:bg-surface-soft/60 transition-colors space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-indigo-600 text-white shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-primary text-white shadow-2xs">
                       ระดับ ปวช.
                     </span>
-                    <span className="text-xs font-bold text-ink">
+                    <span className="text-xs font-semibold text-ink">
                       ประกาศนียบัตรวิชาชีพ (ชั้นปี 1 - 3)
                     </span>
                   </div>
-                  <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-semibold">
-                    เข้าแถว {activeDaysVocList.filter((d: string) => ['1','2','3','4','5'].includes(d)).length} วัน/สัปดาห์
+                  <span className="text-xs font-medium text-muted bg-canvas border border-hairline px-2.5 py-1 rounded-lg shadow-2xs">
+                    เข้าแถว <strong className="text-ink font-bold font-mono">{activeDaysVocList.filter((d: string) => ['1','2','3','4','5'].includes(d)).length}</strong> วัน/สัปดาห์
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {daysOfWeek.map(d => {
                     const isActive = activeDaysVocList.includes(d.num.toString());
                     return (
@@ -893,10 +893,10 @@ export default function AssemblySettings() {
                         key={`voc-${d.num}`}
                         type="button"
                         onClick={() => handleLevelDayToggle('voc', d.num)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                        className={`w-14 sm:w-16 h-8 rounded-lg text-xs font-medium border flex items-center justify-center transition-all cursor-pointer ${
                           isActive
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                            : 'bg-canvas border-hairline text-muted hover:text-ink'
+                            ? 'bg-primary text-white border-primary font-bold shadow-2xs'
+                            : 'bg-canvas border-hairline text-muted hover:text-ink hover:bg-surface-soft'
                         }`}
                       >
                         {d.label}
@@ -907,22 +907,22 @@ export default function AssemblySettings() {
               </div>
 
               {/* Row 2: ระดับ ปวส. */}
-              <div className="p-3.5 rounded-xl border border-purple-200/60 bg-purple-50/30 dark:bg-purple-950/20 dark:border-purple-900/40 space-y-2.5">
+              <div className="p-4 rounded-xl border border-hairline bg-surface-soft/40 hover:bg-surface-soft/60 transition-colors space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-purple-600 text-white shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-2xs">
                       ระดับ ปวส.
                     </span>
-                    <span className="text-xs font-bold text-ink">
+                    <span className="text-xs font-semibold text-ink">
                       ประกาศนียบัตรวิชาชีพชั้นสูง (ชั้นปี 1 - 2)
                     </span>
                   </div>
-                  <span className="text-[11px] text-purple-700 dark:text-purple-300 font-semibold">
-                    เข้าแถว {activeDaysDvocList.filter((d: string) => ['1','2','3','4','5'].includes(d)).length} วัน/สัปดาห์
+                  <span className="text-xs font-medium text-muted bg-canvas border border-hairline px-2.5 py-1 rounded-lg shadow-2xs">
+                    เข้าแถว <strong className="text-ink font-bold font-mono">{activeDaysDvocList.filter((d: string) => ['1','2','3','4','5'].includes(d)).length}</strong> วัน/สัปดาห์
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {daysOfWeek.map(d => {
                     const isActive = activeDaysDvocList.includes(d.num.toString());
                     return (
@@ -930,10 +930,10 @@ export default function AssemblySettings() {
                         key={`dvoc-${d.num}`}
                         type="button"
                         onClick={() => handleLevelDayToggle('dvoc', d.num)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                        className={`w-14 sm:w-16 h-8 rounded-lg text-xs font-medium border flex items-center justify-center transition-all cursor-pointer ${
                           isActive
-                            ? 'bg-purple-600 text-white border-purple-600 shadow-2xs'
-                            : 'bg-canvas border-hairline text-muted hover:text-ink'
+                            ? 'bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200 font-bold shadow-2xs'
+                            : 'bg-canvas border-hairline text-muted hover:text-ink hover:bg-surface-soft'
                         }`}
                       >
                         {d.label}
